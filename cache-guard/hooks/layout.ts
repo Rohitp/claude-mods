@@ -1,5 +1,5 @@
 // Character-grid layout helpers, ported from the terminal design reference
-// (designs/design/Mods Terminal.dc.html): segments, fit, left/right, and the
+// (the terminal design handoff): segments, fit, left/right, and the
 // priority drop used by every one-row band.
 
 /** One styled run of text. `r` is a semantic role, `c` an explicit theme colour key. */

@@ -37,7 +37,7 @@ claude --plugin-dir ./context-lens --plugin-dir ./cache-guard
 
 The same plugin draws on every surface and picks its rendering from `e.surface`:
 
-- **Terminal:** character-grid layouts from `designs/`, themed with the engine's colour roles.
+- **Terminal:** character-grid layouts from the design handoff, themed with the engine's colour roles.
 - **Both bands compose:** each plugin draws its row around whatever the plugin beneath draws, so the cache band sits above the context band instead of replacing it.
 - **Desktop / VS Code:** themed Box/Text/Button for words, Svg for the ring, bars, step dots and trend (tooltips come from `<title>` in an interactive Svg).
 
@@ -104,6 +104,5 @@ claude --plugin-dir ./context-lens --plugin-dir ./cache-guard
 .claude-plugin/marketplace.json
 context-lens/   hooks/{register,model,layout,terminal,desktop,svg}, types/, tests
 cache-guard/    hooks/{register,model,layout,terminal,desktop,svg}, types/, tests
-designs/        design handoff: HTML prototypes, screenshots, spec
 scripts/        local test runner
 ```
