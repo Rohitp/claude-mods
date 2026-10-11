@@ -7,6 +7,36 @@ Two small mods for Claude Code that make the context window and the prompt cache
 | **context-lens** | What fills my context window, and what does carrying it cost? | `/ctx`, `/ctx band`, `/ctx stats` |
 | **cache-guard** | When does my prompt cache go stale, and what will a miss cost? | `/cache`, `/cache warm`, `/cache 5m`, `/cache 1h`, `/cache stats` |
 
+## What it looks like
+
+### Terminal
+
+These are real captures of the mods running in Claude Code 2.1.296 (Haiku 5.5, subscription billing, a short conversation). A project file name is redacted.
+
+**Context Lens** is the side panel plus a one-row band above the prompt. The bar and rows show what fills the window, coloured by category.
+
+![Context Lens, Category tab](docs/images/terminal-context-lens.png)
+
+The **What-if** tab estimates what removing a memory file or MCP server would free and when the rebuild pays back. The other tabs are Items and Trend.
+
+![Context Lens, What-if tab](docs/images/terminal-what-if.png)
+
+**Cache Guard** counts down the prompt cache and shows what a miss and a ping cost, the keep-warm toggle (here on), recent steps and the cache-bust log.
+
+![Cache Guard with keep warm on](docs/images/terminal-cache-guard.png)
+
+In the last minute before the cache expires, a band appears above the context band with the one action that matters. This capture is staged: the warning window was widened so the band shows at 4:50 instead of the final 60 seconds.
+
+![Cache band above the context band](docs/images/terminal-bands.png)
+
+### Desktop app
+
+These are the design mockups the desktop renderer was built from, not captures. The renderer follows this design, but it has not been verified in the desktop app yet. The app's own title-bar toggles and composer chip in the mockups are not part of the mods.
+
+![Context Lens, desktop design](docs/images/desktop-context-lens.jpg)
+
+![Cache Guard, desktop design](docs/images/desktop-cache-guard.jpg)
+
 ## Install
 
 ```
