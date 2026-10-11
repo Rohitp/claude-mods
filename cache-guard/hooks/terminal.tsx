@@ -85,7 +85,7 @@ function paneLines(v: View, iw: number): Seg[][] {
     lr(
       [
         S('Keep warm  ', 'fg b'),
-        v.isKeepWarm ? S('[■ on ]', 'ok b', { act: 'warm' }) : S('[□ off]', 'dim', { act: 'warm' }),
+        v.isKeepWarm ? S('[ ■ on ]', 'ok b', { act: 'warm', primary: true }) : S('[□ off]', 'fg', { act: 'warm' }),
       ],
       iw >= 50 ? [S(note ?? 'manual · pings 30s before expiry', 'dim')] : [],
       iw,
@@ -93,7 +93,9 @@ function paneLines(v: View, iw: number): Seg[][] {
 
   if (v.state === 'empty') {
     b.push([S('◌ ', 'dim'), S('No cache yet', 'fg b')])
-    b.push([S('░'.repeat(Math.max(4, iw - 13)), 'free'), S(`  —:—— / ${v.ttlLabel === '1h' ? '60:00' : '5:00'}`, 'dim')])
+    const tot = v.ttlLabel === '1h' ? '60:00' : '5:00'
+    const suf = `  ${'—:——'.padStart(tot.length)} / ${tot}`
+    b.push([S('░'.repeat(Math.max(4, iw - [...suf].length)), 'free'), S(suf, 'dim')])
     b.push([], ...wrap('The first turn writes the cache. The countdown starts when it lands.', iw, 'dim'), [], kwLine('available after the first turn'))
     return b
   }
@@ -124,13 +126,10 @@ function paneLines(v: View, iw: number): Seg[][] {
   }
 
   const total = v.ttlLabel === '1h' ? '60:00' : '5:00'
-  const n = Math.max(6, iw - 13)
+  const suffix = `  ${padL(isCold ? '0:00' : v.clock, total.length)} / ${total}`
+  const n = Math.max(6, iw - [...suffix].length)
   const f = isCold ? 0 : Math.round((Math.max(0, v.leftMs) / v.ttlMs) * n)
-  b.push([
-    S('█'.repeat(f), isWarn ? 'warn' : 'ok'),
-    S('░'.repeat(n - f), 'free'),
-    S(`  ${padL(isCold ? '0:00' : v.clock, 4)} / ${total}`, 'dim'),
-  ])
+  b.push([S('█'.repeat(f), isWarn ? 'warn' : 'ok'), S('░'.repeat(n - f), 'free'), S(suffix, 'dim')])
   b.push([S(`${fk(v.tokens)} cached prefix`, 'fg'), S(`  ${shortModel(v.model)}`, 'dim')])
 
   if (v.mode === 'api') {
@@ -221,14 +220,15 @@ function paneLines(v: View, iw: number): Seg[][] {
     lr(
       [
         S('TTL ', 'dim'),
-        v.ttlLabel === '5m' ? S(' 5m ', 'sel') : S(' 5m ', 'dim', { act: 'ttl5' }),
-        v.ttlLabel === '1h' ? S(' 1h ', 'sel') : S(' 1h ', 'dim', { act: 'ttl1h' }),
+        v.ttlLabel === '5m' ? S('[ 5m ]', 'accent b', { act: 'ttl5', primary: true }) : S(' 5m ', 'fg', { act: 'ttl5' }),
+        v.ttlLabel === '1h' ? S('[ 1h ]', 'accent b', { act: 'ttl1h', primary: true }) : S(' 1h ', 'fg', { act: 'ttl1h' }),
         S('  assumed', 'dim'),
       ],
       [],
       iw,
     ),
   )
+  b.push([], [S('Click a control, or Tab then Enter. Esc closes.', 'dim')])
   return b
 }
 

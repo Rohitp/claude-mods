@@ -4,6 +4,7 @@ import type { Elements } from 'claude-code'
 import { S, fit, fk, fk1, hbar, lr, padL, padR, prio, wrap } from './layout'
 import type { Item, Seg } from './layout'
 import { WRITE, usd, whatIf } from './model'
+import { PALETTE, colorOf } from './svg'
 import type { View } from './model'
 import type { Cat, Point, Tab } from '../types'
 
@@ -20,6 +21,7 @@ const SHORT: Record<string, string> = {
   'Custom agents': 'Agents',
 }
 const short = (n: string): string => SHORT[n] ?? n
+const clip = (t: string, n: number): string => ([...t].length > n ? `${[...t].slice(0, n - 1).join('')}…` : t)
 const roleOf = (v: View): string => (v.state === 'warn' ? 'warn' : v.state === 'crit' ? 'err' : 'fg')
 
 // ---- stacked bar -----------------------------------------------------------------------
@@ -27,7 +29,7 @@ const roleOf = (v: View): string => (v.state === 'warn' ? 'warn' : v.state === '
 export function bar(cats: Cat[], n: number): Seg[] {
   const parts = cats
     .filter(c => c.kind !== 'deferred' && c.tokens > 0)
-    .map(c => ({ v: c.tokens, ch: c.kind === 'free' ? '░' : c.kind === 'buffer' ? '▒' : '█', c: c.kind === 'used' ? c.color : undefined, r: c.kind === 'free' ? 'free' : c.kind === 'buffer' ? 'buf' : undefined }))
+    .map(c => ({ v: c.tokens, ch: c.kind === 'free' ? '░' : c.kind === 'buffer' ? '▒' : '█', c: c.kind === 'used' ? colorOf(c.name) : undefined, r: c.kind === 'free' ? 'free' : c.kind === 'buffer' ? 'buf' : undefined }))
   const sum = parts.reduce((a, p) => a + p.v, 0)
   if (sum <= 0 || n <= 0) return [S('░'.repeat(Math.max(0, n)), 'free')]
   const raw = parts.map(p => (p.v / sum) * n)
@@ -55,7 +57,7 @@ export function ctxBand(v: View, w: number): Seg[] {
   const used = l.cats.filter(c => c.kind === 'used' && c.tokens > 0).sort((a, b) => b.tokens - a.tokens)
   const top = (i: number): Item | null => {
     const c = used[i]
-    return c ? { p: [3, 5, 7][i]!, segs: [S('■ ', 'fg', { c: c.color }), S(`${short(c.name)} `, 'fg'), S(fk(c.tokens), 'dim')] } : null
+    return c ? { p: [3, 5, 7][i]!, segs: [S('■ ', 'fg', { c: colorOf(c.name) }), S(`${short(c.name)} `, 'fg'), S(fk(c.tokens), 'dim')] } : null
   }
   const items: Item[] = [
     { p: 0, segs: [S('ctx', 'dim')] },
@@ -125,7 +127,13 @@ function paneLines(v: View, st: PaneState, iw: number): Seg[][] {
   const l = v.lens
   const b: Seg[][] = []
   const tabs: Seg[] = []
-  TABS.forEach(t => tabs.push(S(` ${t.label} `, t.id === st.tab ? 'sel' : 'dim', { act: `tab:${t.id}` })))
+  TABS.forEach(t =>
+    tabs.push(
+      t.id === st.tab
+        ? S(`[ ${t.label} ]`, 'accent b', { act: `tab:${t.id}`, primary: true })
+        : S(` ${t.label} `, 'fg', { act: `tab:${t.id}` }),
+    ),
+  )
   b.push(lr([S('Context Lens', 'fg b')], [S(modeLabel(v), 'dim')], iw))
   b.push(tabs, [S('─'.repeat(iw), 'line')])
 
@@ -147,11 +155,11 @@ function paneLines(v: View, st: PaneState, iw: number): Seg[][] {
   if (st.tab === 'category') {
     const rows = l.cats.filter(c => c.kind === 'used' && c.tokens > 0).sort((a, c) => c.tokens - a.tokens)
     const mx = rows[0]?.tokens ?? 1
-    const nW = iw >= 50 ? 20 : 15
+    const nW = Math.max(12, Math.min(24, iw - 4 - 8 - 7 - 1 - 10))
     const bw = iw - 4 - nW - 8 - 7 - 1
     rows.forEach((c, i) => {
-      const row: Seg[] = [S(' ■ ', 'fg', { c: c.color }), S(padR(short(c.name), nW), i === 0 ? 'fg b' : 'fg'), S(padL(fk1(c.tokens), 8), 'fg'), S(padL(`${((c.tokens / l.window) * 100).toFixed(1)}%`, 7), 'dim')]
-      if (bw >= 6) row.push(S(' '), { ...S(hbar(c.tokens / mx, bw), 'fg'), c: c.color })
+      const row: Seg[] = [S(' ■ ', 'fg', { c: colorOf(c.name) }), S(padR(clip(short(c.name), nW), nW), i === 0 ? 'fg b' : 'fg'), S(padL(fk1(c.tokens), 8), 'fg'), S(padL(`${((c.tokens / l.window) * 100).toFixed(1)}%`, 7), 'dim')]
+      if (bw >= 6) row.push(S(' '), { ...S(hbar(c.tokens / mx, bw), 'fg'), c: colorOf(c.name) })
       b.push(row)
     })
     for (const c of l.cats.filter(c => c.kind === 'free' || c.kind === 'buffer')) {
@@ -266,8 +274,8 @@ function paneLines(v: View, st: PaneState, iw: number): Seg[][] {
     const n = Math.min(series.length, iw - 6)
     const pts = series.slice(series.length - n)
     const H = 8
-    const msgC = l.cats.find(c => /message/i.test(c.name))?.color ?? 'claude'
-    const ovC = l.cats.find(c => /mcp/i.test(c.name))?.color ?? 'permission'
+    const msgC = PALETTE.messages
+    const ovC = PALETTE.mcp
     const thr = v.thresholdPct ?? 92
     for (let r = 0; r < H; r++) {
       const hi = 100 - (100 / H) * r
@@ -307,6 +315,7 @@ function paneLines(v: View, st: PaneState, iw: number): Seg[][] {
         : [S('Cached re-read grew ', 'dim'), S(`${fk(first)} → ${fk(l.total)}/turn`, 'fg')],
     )
   }
+  b.push([], [S('Click a tab, or Tab then Enter. Esc closes.', 'dim')])
   return b
 }
 

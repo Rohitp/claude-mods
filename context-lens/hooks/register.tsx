@@ -295,6 +295,8 @@ export const register: Register = (on, options) => {
     }
   })
 
+  // Drawn below whatever the plugins beneath draw (the cache band), because the engine shows
+  // one tree per site.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey || !(await read($, bandAtom))) return next(e)
     try {
@@ -308,8 +310,12 @@ export const register: Register = (on, options) => {
           void $.session.compact()
         },
       }
-      if (e.surface !== 'terminal') return ctxBandDesktop($.ui.resolve(e) as DesktopEl, v, acts)
-      return row(el, fit(ctxBand(v, Math.max(20, e.props.bodyColumns)), Math.max(20, e.props.bodyColumns)), acts, 'band')
+      const below = await next(e)
+      const own =
+        e.surface !== 'terminal'
+          ? ctxBandDesktop($.ui.resolve(e) as DesktopEl, v, acts)
+          : row(el, fit(ctxBand(v, Math.max(20, e.props.bodyColumns)), Math.max(20, e.props.bodyColumns)), acts, 'band')
+      return <el.Box flexDirection="column">{below}{own}</el.Box>
     } catch (err) {
       count('render.error')
       log($, 'error', 'render.band', { name: err instanceof Error ? err.name : 'unknown', msg: err instanceof Error ? err.message : '' })

@@ -379,7 +379,8 @@ export const register: Register = (on, options) => {
     }
   })
 
-  // The band appears only within 60s of expiry or when stale.
+  // The band appears only within 60s of expiry or when stale. It is drawn above whatever the
+  // plugins beneath draw (the context band), because the engine shows one tree per site.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     try {
       const g = await load($)
@@ -411,8 +412,14 @@ export const register: Register = (on, options) => {
           return update($, dismissedAtom, () => touchAt)
         },
       }
-      if (e.surface !== 'terminal') return cacheBandDesktop($.ui.resolve(e) as DesktopEl, v, acts) ?? next(e)
-      return row($.ui.resolve(e), fit(segs, Math.max(20, e.props.bodyColumns)), acts, 'band')
+      const below = await next(e)
+      const el = $.ui.resolve(e)
+      if (e.surface !== 'terminal') {
+        const own = cacheBandDesktop($.ui.resolve(e) as DesktopEl, v, acts)
+        return own ? <el.Box flexDirection="column">{own}{below}</el.Box> : below
+      }
+      const own = row(el, fit(segs, Math.max(20, e.props.bodyColumns)), acts, 'band')
+      return <el.Box flexDirection="column">{own}{below}</el.Box>
     } catch (err) {
       count('render.error')
       log($, 'error', 'render.band', { name: err instanceof Error ? err.name : 'unknown', msg: err instanceof Error ? err.message : '' })
