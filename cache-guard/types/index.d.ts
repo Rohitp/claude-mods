@@ -1,22 +1,33 @@
 export type Touch = { at: number; tokens: number; model: string; effort: string }
-export type Bust = { at: number; tokens: number; cause: string }
+export type Bust = { at: number; tokens: number; cause: string; detail: string }
 export type Beat = 'hit' | 'part' | 'miss'
 
 declare module 'claude-code' {
   interface PluginState {
     'cache-guard': {
+      /** The last main-thread request that wrote or read the cache, stamped at its start. */
       touch: Touch | null
       now: number
       ttlMs: number
       isKeepWarm: boolean
+      /** Pings in the current idle stretch. */
       pings: number
       totalPings: number
       pingTokens: number
+      /** Idle stretches a ping chain carried to a cache hit. */
+      avoided: number
       busts: Bust[]
       beats: Beat[]
-      mode: 'api' | 'sub'
+      billing: 'api' | 'sub'
       limitPct: number | null
       compactedAt: number
+      /** False once main-thread steps keep reporting no cache tokens at all. */
+      isAvailable: boolean
+      /** `touch.at` of the cache window whose band the person dismissed. */
+      dismissedAt: number
+      /** Start of the last real (non-ping) main-thread request. */
+      lastTurnAt: number
+      zeroSteps: number
     }
   }
 }
