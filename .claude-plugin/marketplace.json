@@ -1,0 +1,8 @@
+{
+  "name": "claude-mods",
+  "owner": { "name": "Rohit" },
+  "plugins": [
+    { "name": "context-lens", "source": "./context-lens" },
+    { "name": "cache-guard", "source": "./cache-guard" }
+  ]
+}

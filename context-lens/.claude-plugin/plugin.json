@@ -1,0 +1,1 @@
+{ "name": "context-lens", "version": "0.1.0", "description": "A pane and a one-line band showing what fills the context window, by category and by biggest item.", "types": "./types/index.d.ts" }
