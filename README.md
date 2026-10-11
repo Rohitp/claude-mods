@@ -4,8 +4,8 @@ Two small mods for Claude Code that make the context window and the prompt cache
 
 | Mod | Answers | Commands |
 |---|---|---|
-| **context-lens** | What fills my context window, and what does carrying it cost? | `/ctx`, `/ctx band` |
-| **cache-guard** | When does my prompt cache go stale, and what will a miss cost? | `/cache`, `/cache warm`, `/cache 5m`, `/cache 1h` |
+| **context-lens** | What fills my context window, and what does carrying it cost? | `/ctx`, `/ctx band`, `/ctx stats` |
+| **cache-guard** | When does my prompt cache go stale, and what will a miss cost? | `/cache`, `/cache warm`, `/cache 5m`, `/cache 1h`, `/cache stats` |
 
 ## Install
 
@@ -59,13 +59,25 @@ API billing shows dollars, always suffixed "est."; a subscription shows tokens, 
 | Cold-cache state shared between mods | Context Lens infers it from its own last turn, assuming a 5-minute TTL | Separate plugins; Cache Guard's state is not read across |
 | Status entry coloured | Plain text | The engine draws the status line |
 
+## Logging and metrics
+
+Everything stays on your machine.
+
+- **Debug log:** structured, content-free lines (`cache-guard info bust kind=idle tokens=412000 gapMs=401000`) in `claude --debug`. They carry counts, ids and durations only, never prompt, transcript or file content. A first error of each kind also leaves one dim line in the transcript.
+- **Local metrics:** counters and a short ring of recent events in each mod's own store, flushed every 15s and on exit. `/cache stats` and `/ctx stats` print them; `... stats reset` clears them. Switch them off with the `metrics` option.
+- **What they answer:**
+  - Cache Guard checks its own TTL assumption from observed idle gaps ("a hit after 8m idle outlived the assumed 5m: try /cache 1h"), counts busts by cause, and records what pings really consumed.
+  - Context Lens reports how far its text-length estimate was from the engine's own Messages figure.
+- **Failures are visible:** render faults are caught, logged, and degrade to a one-line message or the engine's default instead of a blank UI; state left by an earlier version is repaired and counted.
+- **No outbound telemetry.** The mods do not call `$.telemetry`, which feeds Anthropic's first-party analytics or an operator's collector, and make no network requests.
+
 ## Limits you should know about
 
 - The cache TTL is not reported to plugins. It is assumed to be 5 minutes; use `/cache 1h` if yours is an hour.
 - Prices are a small hardcoded table, so unknown models show tokens only.
 - Per-source token counts are estimated from text length and scaled to the engine's own Messages total.
 - Cache-bust causes cover idle, model change, effort change and compaction; anything else is "cause unknown".
-- A keep-warm ping still generates a few output tokens, which the tally does not include.
+- Ping cost includes the output and uncached input each ping used, priced at 5x input for output (true of the current price table).
 - "Cache data unavailable" is inferred after three steps with no cache tokens at all.
 - Tests cover the model, layouts and trees. The mods have not been exercised in a live desktop session.
 - The mod API is early access and moves between Claude Code releases. Written against 2.1.296.

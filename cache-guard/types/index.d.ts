@@ -14,6 +14,8 @@ declare module 'claude-code' {
       pings: number
       totalPings: number
       pingTokens: number
+      /** Ping output and uncached input, in input-token equivalents (output counts 5x). */
+      pingExtraTokens: number
       /** Idle stretches a ping chain carried to a cache hit. */
       avoided: number
       busts: Bust[]

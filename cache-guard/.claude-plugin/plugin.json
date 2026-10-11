@@ -1,1 +1,14 @@
-{ "name": "cache-guard", "version": "0.1.0", "description": "Counts down the prompt cache, warns before it goes stale, and can keep it warm with cheap cache-read pings.", "types": "./types/index.d.ts" }
+{
+  "name": "cache-guard",
+  "version": "0.3.0",
+  "description": "Counts down the prompt cache, warns before it goes stale, and can keep it warm with cheap cache-read pings.",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "metrics": {
+      "type": "boolean",
+      "title": "Local metrics",
+      "description": "Keep counters and a short event log in this mod's own store so /cache stats can check its assumptions. Never sent anywhere.",
+      "default": true
+    }
+  }
+}

@@ -179,3 +179,24 @@ test('state from the previous version is ignored, not rendered', () => {
   // and the whole view degrades to first-run rather than throwing
   expect(derive(sanitizeLens(old), sanitizeHistory([40, 41]), 0, 0).state).toBe('empty')
 })
+
+// ---- logging and local metrics ---------------------------------------------------------
+import { formatLine } from './hooks/log'
+import { bump, emptyStats, note, sanitizeStats, summarize } from './hooks/stats'
+
+test('log lines are single-line key=value with no free text', () => {
+  const l = formatLine('context-lens', 'info', 'measure', { total: 412000, model: 'claude opus', ok: true, ms: 8.12345 })
+  expect(l).toBe('context-lens info measure total=412000 model=claude_opus ok=true ms=8.123')
+})
+
+test('stats: counters, ring bounds, repair and summary', () => {
+  let s = emptyStats(1000)
+  for (let i = 0; i < 130; i++) s = note(bump(s, 'measure.ok'), { t: i, k: 'm' }, 100)
+  s = bump(bump(s, 'est.n', 2), 'est.scale', 1000 + 1100)
+  expect(s.recent.length).toBe(100)
+  const out = summarize(s, 120_000).join('\n')
+  expect(out.includes('130 ok')).toBe(true)
+  expect(out.includes('×1.05')).toBe(true)
+  expect(sanitizeStats({ c: { a: 'x', b: 2 }, recent: [null, { t: 1, k: 'a' }] }, 9).c).toEqual({ b: 2 })
+  expect(sanitizeStats(42, 9).since).toBe(9)
+})

@@ -39,6 +39,7 @@ export type Guard = {
   pings: number
   totalPings: number
   pingTokens: number
+  pingExtraTokens: number
   avoided: number
   busts: Bust[]
   beats: Beat[]
@@ -96,7 +97,8 @@ export function derive(g: Guard): View {
     const d = dollars(tokens)
     return d === null ? null : d * mult
   }
-  const spent = price ? (g.pingTokens / 1e6) * price.base * r : null
+  // Reads at the read multiplier, plus what the ping generated and sent uncached.
+  const spent = price ? ((g.pingTokens * r + g.pingExtraTokens) / 1e6) * price.base : null
   const miss = per(WRITE - r)
   const net = miss !== null && spent !== null ? g.avoided * miss - spent : null
   const bustTokens = g.busts.reduce((n, b) => n + b.tokens, 0)
@@ -177,6 +179,7 @@ export function sanitizeGuard(g: Guard): Guard {
     billing: g.billing === 'sub' ? 'sub' : 'api',
     ttlMs: isNum(g.ttlMs) && g.ttlMs > 0 ? g.ttlMs : 300_000,
     now: isNum(g.now) ? g.now : 0,
+    pingExtraTokens: isNum(g.pingExtraTokens) ? g.pingExtraTokens : 0,
     limitPct: isNum(g.limitPct) ? g.limitPct : null,
   }
 }

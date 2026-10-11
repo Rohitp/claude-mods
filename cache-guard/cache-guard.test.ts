@@ -14,6 +14,7 @@ const base: Guard = {
   pings: 0,
   totalPings: 0,
   pingTokens: 0,
+  pingExtraTokens: 0,
   avoided: 0,
   busts: [],
   beats: ['hit', 'hit', 'part', 'miss'],
@@ -168,4 +169,50 @@ test('state from the previous version is repaired, not rendered raw', () => {
   expect(g.busts[0]!.detail).toBe('')
   expect(g.beats).toEqual(['hit'])
   expect(derive(g).state).toBe('empty')
+})
+
+// ---- logging and local metrics ---------------------------------------------------------
+import { formatLine } from './hooks/log'
+import { addGap, bump, emptyStats, note, sanitizeStats, summarize } from './hooks/stats'
+
+test('log lines are single-line key=value with no free text', () => {
+  const l = formatLine('cache-guard', 'warn', 'ping.lapsed', { read: 0, need: 205000, why: 'a b\nc', none: null, ok: true, ms: 12.3456 })
+  expect(l.includes('\n')).toBe(false)
+  expect(l).toBe('cache-guard warn ping.lapsed read=0 need=205000 why=a_b_c none=- ok=true ms=12.346')
+  expect(formatLine('p', 'info', 'e', { s: 'x'.repeat(200) }).length < 120).toBe(true)
+})
+
+test('stats: counters, ring bounds and repair of foreign state', () => {
+  let s = emptyStats(1000)
+  for (let i = 0; i < 150; i++) s = note(bump(s, 'steps'), { t: i, k: 'x' }, 100)
+  expect(s.c.steps).toBe(150)
+  expect(s.recent.length).toBe(100)
+  for (let i = 0; i < 250; i++) s = addGap(s, { ms: i, hit: true })
+  expect(s.gaps.length).toBe(200)
+  const bad = sanitizeStats({ since: 'x', c: { a: 1, b: 'no' }, gaps: [{ ms: 1, hit: true }, 5], recent: [null] }, 7)
+  expect(bad.since).toBe(7)
+  expect(bad.c).toEqual({ a: 1 })
+  expect(bad.gaps.length).toBe(1)
+  expect(bad.recent.length).toBe(0)
+  expect(sanitizeStats(undefined, 3).since).toBe(3)
+})
+
+test('stats summary checks the TTL assumption from observed idle gaps', () => {
+  const MIN = 60_000
+  let s = emptyStats(0)
+  for (const [ms, hit] of [[2 * MIN, true], [8 * MIN, true], [3 * MIN, true]] as const) s = addGap(s, { ms, hit })
+  const longer = summarize(s, 5 * MIN, 10 * MIN).join('\n')
+  expect(longer.includes('outlived the assumed TTL')).toBe(true)
+  expect(longer.includes('/cache 1h')).toBe(true)
+
+  let t = emptyStats(0)
+  for (const [ms, hit] of [[1 * MIN, true], [2 * MIN, false], [1.5 * MIN, true]] as const) t = addGap(t, { ms, hit })
+  expect(summarize(t, 5 * MIN, 10 * MIN).join('\n').includes('real TTL may be shorter')).toBe(true)
+  expect(summarize(emptyStats(0), 5 * MIN, 1).join('\n').includes('not enough yet')).toBe(true)
+})
+
+test('ping cost includes what the ping generated, not only the read', () => {
+  const v = derive({ ...base, totalPings: 1, pingTokens: 400_000, pingExtraTokens: 5 * 30 })
+  const readOnly = (400_000 / 1e6) * 4 * 0.05
+  expect(Math.round((v.spent ?? 0) * 100000) / 100000).toBe(Math.round((readOnly + (150 / 1e6) * 4) * 100000) / 100000)
 })
