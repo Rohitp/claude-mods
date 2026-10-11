@@ -189,7 +189,11 @@ function paneLines(v: View, st: PaneState, iw: number): Seg[][] {
       lr([S(`    ${label}`, 'fg'), S(meta ? `  ${meta}` : '', 'dim')], [S(key ? 'what-if ' : '', 'accent', key ? { act: `wi:${key}` } : {}), S(fk1(tokens), 'fg')], iw)
     const sum = (a: { tokens: number }[]) => a.reduce((n, x) => n + x.tokens, 0)
     b.push(head('mcp', 'MCP tools', `${l.servers.length} server${l.servers.length === 1 ? '' : 's'}`, sum(l.servers)))
-    if (isOpen('mcp')) l.servers.forEach(s => b.push(child(s.label, `${s.tools} tools`, s.tokens, `mcp:${s.label}`)))
+    if (isOpen('mcp')) {
+      l.servers.forEach(s =>
+        b.push(child(s.label, `${s.tools} tools${s.deferred > 0 ? ` · ${s.deferred} on demand` : ''}`, s.tokens, s.tokens > 0 ? `mcp:${s.label}` : undefined)),
+      )
+    }
     b.push(head('mem', 'Memory files', `${l.memory.length} file${l.memory.length === 1 ? '' : 's'}`, sum(l.memory)))
     if (isOpen('mem')) l.memory.forEach(m => b.push(child(m.label, '', m.tokens, `Memory file:${m.label}`)))
     b.push(head('skl', 'Skills', String(l.skills.length), sum(l.skills)))
@@ -245,8 +249,8 @@ function paneLines(v: View, st: PaneState, iw: number): Seg[][] {
     b.push(
       ...wrap(
         w.isCold
-          ? 'The cache looks cold, so the next turn rebuilds the prefix anyway. Removing now costs nothing extra.'
-          : 'The cache is warm, so removing this now forces a one-time rebuild. Cheapest when the cache is cold or at the start of a session.',
+          ? `The cache looks cold, so the next turn rebuilds the prefix anyway. Removing ${c.label} now costs nothing extra.`
+          : `The cache is warm, so removing ${c.label} now forces a one-time rebuild. It's cheapest when the cache is cold or at the start of a session.`,
         iw,
         'fg',
       ),
@@ -295,7 +299,7 @@ function paneLines(v: View, st: PaneState, iw: number): Seg[][] {
     }
     b.push([S(`     └${'─'.repeat(n)}`, 'line')])
     const comp = pts.findIndex(p => p.isCompaction)
-    if (comp >= 0) b.push([S(`${' '.repeat(6 + comp)}▲ compacted`, 'dim')])
+    if (comp >= 0) b.push([S(`${' '.repeat(6 + comp)}▲ compacted at turn ${pts[comp]!.n}`, 'dim')])
     b.push([S('█', 'fg', { c: msgC }), S(' messages  ', 'dim'), S('█', 'fg', { c: ovC }), S(` overhead ${fk(l.overhead)}  `, 'dim'), S('┄', 'warn'), S(` ${thr}%`, 'dim')])
     b.push([])
     if (v.growth !== null) {

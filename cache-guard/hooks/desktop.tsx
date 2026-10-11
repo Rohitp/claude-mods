@@ -2,7 +2,7 @@
 import type { Elements } from 'claude-code'
 
 import { dur, fk } from './layout'
-import { WRITE, shortModel, usd } from './model'
+import { WRITE, intervalLabel, shortModel, usd } from './model'
 import type { View } from './model'
 import { COLORS, miniBarSvg, ringSvg, stepsSvg } from './svg'
 import type { Acts } from './terminal'
@@ -50,12 +50,24 @@ export function cachePaneDesktop(el: El, v: View, acts: Acts) {
   const title = isCold ? 'Cold' : v.state === 'warn' ? 'Expiring soon' : 'Warm'
   const total = v.ttlLabel === '1h' ? '60:00' : '5:00'
 
-  const steps = v.beats.slice(-24)
-  const dots = steps.map((b, i) => ({
-    beat: b,
-    tip: `Step ${v.beats.length - steps.length + i + 1} · ${b === 'hit' ? 'read from cache' : b === 'part' ? 'partly read' : 'rewritten'}`,
+  const steps = v.steps.slice(-24)
+  const dots = steps.map(s => ({
+    beat: s.beat,
+    tip:
+      `Turn ${s.n} · ${s.beat === 'hit' ? 'hit' : s.beat === 'part' ? 'partial' : 'miss'}\n` +
+      (s.beat === 'hit'
+        ? `Read ${fk(s.read)} from cache`
+        : s.beat === 'part'
+          ? `Read ${fk(s.read)} · rewrote ${fk(s.wrote)}`
+          : `Rewrote ${fk(s.wrote)}${s.note ? ` · ${s.note}` : ''}`),
   }))
-  const cnt = (b: string) => steps.filter(x => x === b).length
+  const cnt = (b: string) => steps.filter(x => x.beat === b).length
+  const tile = (label: string, value: string) => (
+    <Box key={label} flexDirection="column" borderStyle="round" paddingX={1} minWidth={16}>
+      <Text dimColor>{label}</Text>
+      <Text bold>{value}</Text>
+    </Box>
+  )
 
   return (
     <Box flexDirection="column" gap={1}>
@@ -86,7 +98,9 @@ export function cachePaneDesktop(el: El, v: View, acts: Acts) {
       {isCold && (
         <Box flexDirection="column" borderStyle="round" paddingX={1}>
           <Text bold color="error">Cache is cold — compact now</Text>
-          <Text>The next turn rewrites all of it either way; compacting first means you rebuild a smaller prefix instead.</Text>
+          <Text>
+            The next turn rewrites all {fk(v.tokens)} either way{v.mode === 'api' && v.miss !== null ? ` (+${usd(v.miss)} est.)` : ` at ${WRITE}x`}. Compacting first means you rebuild a smaller prefix instead.
+          </Text>
           <Box>
             <Button key="compact" label="Compact now" onPress={acts.compact} />
             <Button key="dismiss" label="Keep working" onPress={acts.dismiss} />
@@ -101,24 +115,25 @@ export function cachePaneDesktop(el: El, v: View, acts: Acts) {
         </Box>
         <Text dimColor>
           {v.isKeepWarm
-            ? `Pings 30s before expiry while you are away. Stops by itself after ${v.breakEven} pings in a row or 2h without a turn.`
-            : `Manual. When on, it pings 30s before expiry while you are away, until you turn it off. Break-even: 1 avoided miss = ${v.breakEven} pings.`}
+            ? `On. Pings every ${intervalLabel(v.ttlMs)} while you're away${v.mode === 'api' && v.ping !== null ? `, ${usd(v.ping)} est. each` : ''}. Stops by itself after ${v.breakEven} pings in a row, or after 2h without a turn.`
+            : `Off. Turn on before you step away: it pings every ${intervalLabel(v.ttlMs)} so your next turn stays a cache hit.`}
         </Text>
-        {v.isKeepWarm && (
-          <Box gap={3}>
-            <Text>Pings <Text bold>{v.totalPings}</Text></Text>
-            <Text>
-              Spent{' '}
-              <Text bold>{v.spent !== null && v.mode === 'api' ? `${usd(v.spent)} est.` : `${fk(v.pingTokens)} read`}</Text>
-            </Text>
-            <Text>
-              Next ping{' '}
-              <Text bold>
-                {v.nextPingMs === null ? '—' : `${Math.floor(v.nextPingMs / 60000)}:${String(Math.floor((v.nextPingMs % 60000) / 1000)).padStart(2, '0')}`}
-              </Text>
-            </Text>
-          </Box>
-        )}
+        <Box flexWrap="wrap" gap={1}>
+          {v.isKeepWarm
+            ? [
+                tile('Pings', String(v.totalPings)),
+                tile(v.mode === 'api' ? 'Spent, est.' : 'Read', v.spent !== null && v.mode === 'api' ? usd(v.spent) : fk(v.pingTokens)),
+                tile(
+                  'Next ping',
+                  v.nextPingMs === null ? '—' : `${Math.floor(v.nextPingMs / 60000)}:${String(Math.floor((v.nextPingMs % 60000) / 1000)).padStart(2, '0')}`,
+                ),
+              ]
+            : [
+                tile('Ping costs', v.mode === 'api' && v.ping !== null ? usd(v.ping) : `${v.readMult}x`),
+                tile('Miss costs', v.mode === 'api' && v.miss !== null ? `+${usd(v.miss)}` : `${WRITE}x`),
+                tile('Break-even', `${v.breakEven} pings`),
+              ]}
+        </Box>
         {v.isKeepWarm && v.avoided > 0 && v.net !== null && v.miss !== null && (
           <Text dimColor>
             Saved {v.avoided} miss{v.avoided > 1 ? 'es' : ''} +{usd(v.avoided * v.miss)} · net {v.net >= 0 ? '−' : '+'}{usd(Math.abs(v.net))} est.
@@ -134,7 +149,9 @@ export function cachePaneDesktop(el: El, v: View, acts: Acts) {
             alt={`${cnt('hit')} hits, ${cnt('part')} partial, ${cnt('miss')} misses in the last ${steps.length} steps`}
             isInteractive
           />
-          <Text dimColor>● read from cache · ◐ partly · ○ rewritten  ({cnt('hit')} / {cnt('part')} / {cnt('miss')})</Text>
+          <Text dimColor>
+            ● hit {cnt('hit')} · ◐ partial {cnt('part')} · ○ miss {cnt('miss')}
+          </Text>
         </Box>
       )}
 

@@ -1,6 +1,7 @@
 export type Cat = { name: string; tokens: number; color: string; kind: 'used' | 'free' | 'buffer' | 'deferred' }
 export type Named = { label: string; tokens: number }
-export type Server = { label: string; tokens: number; tools: number }
+/** `tokens` counts only loaded tool schemas; `deferred` tools are fetched on demand. */
+export type Server = { label: string; tokens: number; tools: number; deferred: number }
 export type Lens = {
   cats: Cat[]
   /** Tokens in use, over the compaction window `max`; `window` is the model's own. */
@@ -20,7 +21,7 @@ export type Lens = {
   billing: 'api' | 'sub'
   limitPct: number | null
 }
-export type Point = { total: number; overhead: number; isCompaction: boolean }
+export type Point = { total: number; overhead: number; isCompaction: boolean; /** Turn number, counted from the first measurement. */ n: number }
 export type Tab = 'category' | 'items' | 'whatif' | 'trend'
 
 declare module 'claude-code' {

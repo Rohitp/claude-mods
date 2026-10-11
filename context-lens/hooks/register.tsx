@@ -100,15 +100,18 @@ async function measure($: EngineInterface): Promise<Lens | null> {
 
   const cats: Cat[] = b.categories.map(c => ({ name: c.name, tokens: c.tokens, color: c.color, kind: c.kind }))
   const msgRow = cats.find(c => c.kind === 'used' && /message/i.test(c.name))
-  const byServer = new Map<string, { tokens: number; tools: number }>()
+  const byServer = new Map<string, { tokens: number; tools: number; deferred: number }>()
   for (const t of b.mcpTools) {
-    if (!t.isLoaded) continue
-    const s = byServer.get(t.serverName) ?? { tokens: 0, tools: 0 }
-    byServer.set(t.serverName, { tokens: s.tokens + t.tokens, tools: s.tools + 1 })
+    const s = byServer.get(t.serverName) ?? { tokens: 0, tools: 0, deferred: 0 }
+    byServer.set(t.serverName, {
+      tokens: s.tokens + (t.isLoaded ? t.tokens : 0),
+      tools: s.tools + 1,
+      deferred: s.deferred + (t.isLoaded ? 0 : 1),
+    })
   }
   const servers: Server[] = [...byServer.entries()]
-    .map(([label, s]) => ({ label, tokens: s.tokens, tools: s.tools }))
-    .sort((x, y) => y.tokens - x.tokens)
+    .map(([label, s]) => ({ label, tokens: s.tokens, tools: s.tools, deferred: s.deferred }))
+    .sort((x, y) => y.tokens - x.tokens || y.tools - x.tools)
   const w = usage.rateLimits.find(l => l.kind === 'five_hour') ?? usage.rateLimits[0]
   const total = b.totalTokens
   const src = await messageSources($, msgRow?.tokens ?? 0)
@@ -163,6 +166,7 @@ async function refresh($: EngineInterface) {
       total: lens.total,
       overhead: lens.overhead,
       isCompaction: !!prev && lens.total < prev.total * 0.7,
+      n: (prev?.n ?? 0) + 1,
     }
     if (point.isCompaction) {
       count('compaction')

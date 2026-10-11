@@ -38,6 +38,7 @@ claude --plugin-dir ./context-lens --plugin-dir ./cache-guard
 The same plugin draws on every surface and picks its rendering from `e.surface`:
 
 - **Terminal:** character-grid layouts from `designs/`, themed with the engine's colour roles.
+- **Both bands compose:** each plugin draws its row around whatever the plugin beneath draws, so the cache band sits above the context band instead of replacing it.
 - **Desktop / VS Code:** themed Box/Text/Button for words, Svg for the ring, bars, step dots and trend (tooltips come from `<title>` in an interactive Svg).
 
 ## Billing mode
@@ -81,6 +82,12 @@ Everything stays on your machine.
 - "Cache data unavailable" is inferred after three steps with no cache tokens at all.
 - Tests cover the model, layouts and trees. The mods have not been exercised in a live desktop session.
 - The mod API is early access and moves between Claude Code releases. Written against 2.1.296.
+
+## Checking what the engine really draws
+
+`scripts/capture.py` runs Claude Code in a pseudo-terminal with both mods loaded, sends prompts and
+slash commands, clicks controls with mouse events, and prints the screen with its colours. It is how
+the tab, colour and band-stacking problems were found. See the header of the script for usage.
 
 ## Development
 

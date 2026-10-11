@@ -1,5 +1,5 @@
 // Pure model: prices, formulas and the derived view both surfaces draw from.
-import type { Beat, Bust, Touch } from '../types'
+import type { Beat, Bust, Step, Touch } from '../types'
 
 export const WRITE = 1.25 // cache write multiplier, 5-minute TTL
 export const WARN_MS = 60_000 // toast, band and amber digits this long before expiry
@@ -17,6 +17,11 @@ export function priceOf(model: string): Price | null {
   if (/haiku-5/.test(model)) return { base: 0.1, read: 0.1 }
   if (/haiku/.test(model)) return { base: 1, read: 0.1 }
   return null
+}
+/** The ping interval the design speaks of: the TTL less the 30s lead, as `4m 30s` or `59m 30s`. */
+export function intervalLabel(ttlMs: number): string {
+  const s = Math.max(0, Math.round((ttlMs - PING_LEAD_MS) / 1000))
+  return s % 60 === 0 ? `${s / 60}m` : `${Math.floor(s / 60)}m ${s % 60}s`
 }
 export const readMult = (model: string): number => priceOf(model)?.read ?? 0.1
 /** Pings that cost no more than the one miss they avoid: (write - read) / read. */
@@ -42,7 +47,7 @@ export type Guard = {
   pingExtraTokens: number
   avoided: number
   busts: Bust[]
-  beats: Beat[]
+  steps: Step[]
   limitPct: number | null
   isAvailable: boolean
   dismissedAt: number
@@ -74,6 +79,7 @@ export type View = {
   limitPct: number | null
   busts: Bust[]
   beats: Beat[]
+  steps: Step[]
   bustTokens: number
   bustCost: number | null
   /** Dollars a rewritten token costs above a read, when the price is known. */
@@ -125,7 +131,8 @@ export function derive(g: Guard): View {
     nextPingMs: t && g.isKeepWarm ? Math.max(0, leftMs - PING_LEAD_MS) : null,
     limitPct: g.limitPct,
     busts: g.busts,
-    beats: g.beats,
+    beats: g.steps.map(s => s.beat),
+    steps: g.steps,
     bustTokens,
     bustCost: bustD === null ? null : bustD * (WRITE - r),
     missPerToken: price ? (price.base / 1e6) * (WRITE - r) : null,
@@ -170,12 +177,20 @@ export function sanitizeGuard(g: Guard): Guard {
   const busts = (Array.isArray(g.busts) ? g.busts : [])
     .filter(b => !!b && isNum(b.at) && isNum(b.tokens) && typeof b.cause === 'string')
     .map(b => ({ at: b.at, tokens: b.tokens, cause: b.cause, detail: typeof b.detail === 'string' ? b.detail : '' }))
-  const beats = (Array.isArray(g.beats) ? g.beats : []).filter(b => b === 'hit' || b === 'part' || b === 'miss')
+  const steps: Step[] = (Array.isArray(g.steps) ? g.steps : [])
+    .filter(x => !!x && (x.beat === 'hit' || x.beat === 'part' || x.beat === 'miss'))
+    .map((x, i) => ({
+      n: isNum(x.n) ? x.n : i + 1,
+      beat: x.beat,
+      read: isNum(x.read) ? x.read : 0,
+      wrote: isNum(x.wrote) ? x.wrote : 0,
+      note: typeof x.note === 'string' ? x.note : '',
+    }))
   return {
     ...g,
     touch,
     busts,
-    beats,
+    steps,
     billing: g.billing === 'sub' ? 'sub' : 'api',
     ttlMs: isNum(g.ttlMs) && g.ttlMs > 0 ? g.ttlMs : 300_000,
     now: isNum(g.now) ? g.now : 0,

@@ -17,7 +17,12 @@ const base: Guard = {
   pingExtraTokens: 0,
   avoided: 0,
   busts: [],
-  beats: ['hit', 'hit', 'part', 'miss'],
+  steps: [
+    { n: 1, beat: 'hit', read: 400000, wrote: 0, note: '' },
+    { n: 2, beat: 'hit', read: 410000, wrote: 0, note: '' },
+    { n: 3, beat: 'part', read: 214000, wrote: 174000, note: '' },
+    { n: 4, beat: 'miss', read: 0, wrote: 384000, note: 'model changed' },
+  ],
   limitPct: 37,
   isAvailable: true,
   dismissedAt: 0,
@@ -163,11 +168,12 @@ import { sanitizeGuard } from './hooks/model'
 
 test('state from the previous version is repaired, not rendered raw', () => {
   const oldBust = { at: 1, tokens: 5, cause: 'idle' } as never
-  const g = sanitizeGuard({ ...base, busts: [oldBust, null as never], beats: ['hit', 'x' as never], touch: { at: 'x' } as never })
+  const g = sanitizeGuard({ ...base, busts: [oldBust, null as never], steps: [{ beat: 'hit' } as never, { beat: 'x' } as never], touch: { at: 'x' } as never })
   expect(g.touch).toBe(null)
   expect(g.busts.length).toBe(1)
   expect(g.busts[0]!.detail).toBe('')
-  expect(g.beats).toEqual(['hit'])
+  expect(g.steps.length).toBe(1)
+  expect(g.steps[0]!.read).toBe(0)
   expect(derive(g).state).toBe('empty')
 })
 

@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Beat, Bust } from '../types'
+import type { Beat, Bust, Step } from '../types'
 import { cacheBandDesktop, cachePaneDesktop } from './desktop'
 import type { DesktopEl } from './desktop'
 import { dur, fit } from './layout'
@@ -26,7 +26,7 @@ const pingTokensAtom = atom({ plugin: 'cache-guard', key: 'pingTokens' } as cons
 const pingExtraAtom = atom({ plugin: 'cache-guard', key: 'pingExtraTokens' } as const, 0)
 const avoidedAtom = atom({ plugin: 'cache-guard', key: 'avoided' } as const, 0)
 const bustsAtom = atom({ plugin: 'cache-guard', key: 'busts' } as const, [])
-const beatsAtom = atom({ plugin: 'cache-guard', key: 'beats' } as const, [])
+const stepsAtom = atom({ plugin: 'cache-guard', key: 'steps' } as const, [])
 const billingAtom = atom({ plugin: 'cache-guard', key: 'billing' } as const, 'api')
 const limitAtom = atom({ plugin: 'cache-guard', key: 'limitPct' } as const, null)
 const compactedAtom = atom({ plugin: 'cache-guard', key: 'compactedAt' } as const, 0)
@@ -92,7 +92,7 @@ async function load($: EngineInterface): Promise<Guard> {
     pingExtraTokens: await read($, pingExtraAtom),
     avoided: await read($, avoidedAtom),
     busts: await read($, bustsAtom),
-    beats: await read($, beatsAtom),
+    steps: await read($, stepsAtom),
     limitPct: await read($, limitAtom),
     isAvailable: await read($, availableAtom),
     dismissedAt: await read($, dismissedAtom),
@@ -256,13 +256,20 @@ export const register: Register = (on, options) => {
     const cached = u.cache_read_input_tokens + u.cache_creation_input_tokens
     const total = cached + u.input_tokens
     count('steps')
+    let beat: Beat = 'miss'
     if (total > 0) {
       const share = u.cache_read_input_tokens / total
-      const beat: Beat = share > 0.8 ? 'hit' : share > 0.2 ? 'part' : 'miss'
+      beat = share > 0.8 ? 'hit' : share > 0.2 ? 'part' : 'miss'
       count(beat)
-      await update($, beatsAtom, v => [...v, beat].slice(-60))
+    }
+    const pushStep = async (note: string) => {
+      const prior = await read($, stepsAtom)
+      const nextN = ((prior[prior.length - 1] as Step | undefined)?.n ?? prior.length) + 1
+      const step: Step = { n: nextN, beat, read: u.cache_read_input_tokens, wrote: u.cache_creation_input_tokens, note }
+      await update($, stepsAtom, (v: Step[]) => [...(Array.isArray(v) ? v : []), step].slice(-60))
     }
     if (cached === 0) {
+      await pushStep('')
       const z = (await read($, zeroAtom)) + 1
       await update($, zeroAtom, () => z)
       if (z >= 3 && !prev) {
@@ -276,6 +283,7 @@ export const register: Register = (on, options) => {
     await update($, availableAtom, () => true)
 
     const effort = String(e.effort ?? 'default')
+    let stepNote = ''
     if (prev) {
       const gap = startedAt - prev.at
       const isHit = u.cache_read_input_tokens >= prev.tokens * 0.5
@@ -298,6 +306,7 @@ export const register: Register = (on, options) => {
                 : compactedAt > prev.at
                   ? ['compaction', 'compaction', 'after compaction']
                   : ['unknown', 'cause unknown', '']
+        stepNote = cause!
         const bust: Bust = { at: startedAt, tokens: u.cache_creation_input_tokens, cause: cause!, detail: detail! }
         await update($, bustsAtom, v => [...v, bust].slice(-20))
         count(`bust.${kind}`, 1, { t: startedAt, k: 'bust', d: { kind: kind!, tokens: u.cache_creation_input_tokens, gapMs: gap } })
@@ -308,6 +317,7 @@ export const register: Register = (on, options) => {
         log($, 'info', 'avoided', { pings: pingsBefore, gapMs: gap })
       }
     }
+    await pushStep(stepNote)
     await update($, touchAtom, () => ({ at: startedAt, tokens: cached, model: e.model, effort }))
     await update($, lastTurnAtom, () => startedAt)
     await update($, pingsAtom, () => 0)

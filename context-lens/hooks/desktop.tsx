@@ -107,7 +107,7 @@ export function ctxPaneDesktop(el: DesktopEl, v: View, st: PaneState, acts: Acts
     return (
       <Box flexDirection="column" gap={1}>
         {summary}
-        {group('mcp', 'MCP tools', `${l.servers.length} servers`, sum(l.servers), l.servers.map(s => ({ label: s.label, meta: `${s.tools} tools`, tokens: s.tokens, wi: `mcp:${s.label}` })))}
+        {group('mcp', 'MCP tools', `${l.servers.length} servers`, sum(l.servers), l.servers.map(s => ({ label: s.label, meta: `${s.tools} tools${s.deferred > 0 ? ` · ${s.deferred} on demand` : ''}`, tokens: s.tokens, wi: s.tokens > 0 ? `mcp:${s.label}` : undefined })))}
         {group('mem', 'Memory files', `${l.memory.length} files`, sum(l.memory), l.memory.map(m => ({ label: m.label, tokens: m.tokens, wi: `Memory file:${m.label}` })))}
         {group('skl', 'Skills', String(l.skills.length), sum(l.skills), l.skills.slice(0, 8).map(s => ({ label: s.label, tokens: s.tokens })))}
         {group('agt', 'Agents', String(l.agents.length), sum(l.agents), l.agents.map(s => ({ label: s.label, tokens: s.tokens })))}
@@ -155,8 +155,8 @@ export function ctxPaneDesktop(el: DesktopEl, v: View, st: PaneState, acts: Acts
         </Box>
         <Text dimColor>
           {w.isCold
-            ? 'The cache looks cold, so the next turn rebuilds the prefix anyway. Removing now costs nothing extra.'
-            : 'The cache is warm, so removing this now forces a one-time rebuild. Cheapest when the cache is cold or at the start of a session.'}{' '}
+            ? `The cache looks cold, so the next turn rebuilds the prefix anyway. Removing ${sel.label} now costs nothing extra.`
+            : `The cache is warm, so removing ${sel.label} now forces a one-time rebuild. It's cheapest when the cache is cold or at the start of a session.`}{' '}
           To remove it, disable it in /mcp or your memory settings; this view only estimates.
         </Text>
       </Box>
@@ -177,7 +177,10 @@ export function ctxPaneDesktop(el: DesktopEl, v: View, st: PaneState, acts: Acts
               alt={`Window fill over the last ${hist.length} turns, now ${v.percent}%`}
               isInteractive
             />
-            <Text dimColor>■ messages · ■ overhead {fk(l.overhead)} · - - {v.thresholdPct ?? 92}% autocompact · ▲ compacted</Text>
+            <Text dimColor>
+              ■ messages · ■ overhead {fk(l.overhead)} · - - {v.thresholdPct ?? 92}% autocompact
+              {hist.some(p => p.isCompaction) ? ` · ▲ compacted at turn ${hist.find(p => p.isCompaction)!.n}` : ''}
+            </Text>
             {v.growth !== null && (
               <Text>
                 <Text bold>+{fk(Math.max(0, v.growth))}/turn</Text> <Text dimColor>average, last {Math.min(10, hist.length - 1)} turns</Text>

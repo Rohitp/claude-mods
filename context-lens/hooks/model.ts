@@ -132,5 +132,7 @@ export function sanitizeLens(x: unknown): Lens | null {
 
 export function sanitizeHistory(x: unknown): Point[] {
   if (!Array.isArray(x)) return []
-  return x.filter((p): p is Point => !!p && typeof p === 'object' && isNum((p as Point).total) && isNum((p as Point).overhead))
+  const ok = x.filter((p): p is Point => !!p && typeof p === 'object' && isNum((p as Point).total) && isNum((p as Point).overhead))
+  // Points from an earlier version carry no turn number; number them by position.
+  return ok.map((p, i) => ({ ...p, isCompaction: !!p.isCompaction, n: isNum(p.n) ? p.n : i + 1 }))
 }

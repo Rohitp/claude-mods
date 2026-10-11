@@ -3,7 +3,7 @@ import type { Elements } from 'claude-code'
 
 import { S, fit, fk, lr, padL, prio, wrap, dur } from './layout'
 import type { Seg } from './layout'
-import { WRITE, shortModel, usd } from './model'
+import { WRITE, intervalLabel, shortModel, usd } from './model'
 import type { View } from './model'
 
 export type Acts = Record<string, () => void>
@@ -145,7 +145,7 @@ function paneLines(v: View, iw: number): Seg[][] {
     b.push([])
     b.push(
       ...wrap(
-        'Cache is cold — compact now. The next turn rewrites all of it either way; compacting first means you rebuild a smaller prefix instead.',
+        `Cache is cold — compact now. The next turn rewrites all ${fk(v.tokens)} either way${v.mode === 'api' && v.miss !== null ? ` (+${usd(v.miss)} est.)` : ` at ${WRITE}x`}. Compacting first means you rebuild a smaller prefix instead.`,
         iw,
         'fg',
       ),
@@ -169,9 +169,9 @@ function paneLines(v: View, iw: number): Seg[][] {
           : [S(`Avoided ${v.avoided} miss${v.avoided > 1 ? 'es' : ''} `, 'dim'), S(`(${fk(v.tokens)} at ${WRITE}x)`, 'fg')],
       )
     }
-    b.push([S(`Stops by itself after ${v.breakEven} pings in a row, or 2h without a turn.`, 'dim')])
+    b.push(...wrap(`Pings every ${intervalLabel(v.ttlMs)} while you are away. Stops by itself after ${v.breakEven} pings in a row, or 2h without a turn.`, iw, 'dim'))
   } else {
-    b.push(...wrap(`Off. When on, it pings 30s before expiry while you are away, until you turn it off.`, iw, 'dim'))
+    b.push(...wrap(`Off. Turn on before you step away: it pings every ${intervalLabel(v.ttlMs)} so your next turn stays a cache hit.`, iw, 'dim'))
     b.push([S('Break-even: ', 'dim'), S(`1 avoided miss = ${v.breakEven} pings`, 'fg')])
   }
 

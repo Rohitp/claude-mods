@@ -1,6 +1,8 @@
 export type Touch = { at: number; tokens: number; model: string; effort: string }
 export type Bust = { at: number; tokens: number; cause: string; detail: string }
 export type Beat = 'hit' | 'part' | 'miss'
+/** One main-thread request: what it read, what it rewrote, and why if it was a bust. */
+export type Step = { n: number; beat: Beat; read: number; wrote: number; note: string }
 
 declare module 'claude-code' {
   interface PluginState {
@@ -19,7 +21,7 @@ declare module 'claude-code' {
       /** Idle stretches a ping chain carried to a cache hit. */
       avoided: number
       busts: Bust[]
-      beats: Beat[]
+      steps: Step[]
       billing: 'api' | 'sub'
       limitPct: number | null
       compactedAt: number
