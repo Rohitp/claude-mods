@@ -5,6 +5,8 @@ import type { Beat, Bust } from '../types'
 import { fit, mmss, dur } from './layout'
 import { MAX_KEEP_MS, PING_LEAD_MS, WARN_MS, breakEven, derive, readMult, statusText, toastText } from './model'
 import type { Guard, View } from './model'
+import { cacheBandDesktop, cachePaneDesktop } from './desktop'
+import type { DesktopEl } from './desktop'
 import { cacheBand, cachePane, row } from './terminal'
 import type { Acts } from './terminal'
 
@@ -226,6 +228,7 @@ export const register: Register = on => {
       ttl1h: () => update($, ttlAtom, () => 3_600_000),
       dismiss: () => update($, dismissedAtom, () => touchAt),
     }
+    if (e.surface !== 'terminal') return cachePaneDesktop($.ui.resolve(e) as DesktopEl, v, acts)
     const lines = cachePane(v, Math.max(20, e.props.bodyColumns))
     return <el.Box flexDirection="column">{lines.map((l, i) => row(el, l, acts, `r${i}`))}</el.Box>
   })
@@ -241,13 +244,13 @@ export const register: Register = on => {
     isBandShown = !!segs
     if (!segs) return next(e)
 
-    const el = $.ui.resolve(e)
     const touchAt = g.touch.at
     const acts: Acts = {
       warm: () => update($, keepAtom, isOn => !isOn),
       compact: () => void $.session.compact(),
       dismiss: () => update($, dismissedAtom, () => touchAt),
     }
-    return row(el, fit(segs, Math.max(20, e.props.bodyColumns)), acts, 'band')
+    if (e.surface !== 'terminal') return cacheBandDesktop($.ui.resolve(e) as DesktopEl, v, acts) ?? next(e)
+    return row($.ui.resolve(e), fit(segs, Math.max(20, e.props.bodyColumns)), acts, 'band')
   })
 }

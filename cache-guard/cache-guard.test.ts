@@ -97,3 +97,63 @@ test('pane lines never exceed the inner width', () => {
     }
   }
 })
+
+// ---- desktop trees ---------------------------------------------------------------------
+import { cacheBandDesktop, cachePaneDesktop } from './hooks/desktop'
+import { miniBarSvg, ringSvg, stepsSvg } from './hooks/svg'
+
+type Node = { tag: string; props: Record<string, unknown>; kids: unknown[] } | string | number | false | null | undefined
+const el = { Box: 'Box', Text: 'Text', Button: 'Button', Svg: 'Svg' } as never
+const flat = (n: Node | Node[]): string => {
+  if (n === null || n === undefined || n === false) return ''
+  if (typeof n === 'string' || typeof n === 'number') return String(n)
+  if (Array.isArray(n)) return n.map(flat).join(' ')
+  const own = n.tag === 'Button' ? String(n.props.label ?? '') : n.tag === 'Svg' ? `[svg:${n.props.alt}]` : ''
+  return `${own} ${(n.kids as Node[]).map(flat).join(' ')}`
+}
+const find = (n: Node, tag: string, out: { props: Record<string, unknown> }[] = []) => {
+  if (n && typeof n === 'object' && !Array.isArray(n)) {
+    if (n.tag === tag) out.push(n)
+    ;(n.kids as Node[]).forEach(k => (Array.isArray(k) ? k.forEach(x => find(x as Node, tag, out)) : find(k, tag, out)))
+  }
+  return out
+}
+const acts = { warm: () => {}, compact: () => {}, ttl5: () => {}, ttl1h: () => {}, dismiss: () => {} }
+
+test('desktop pane: states, modes and actions', () => {
+  const warn = cachePaneDesktop(el, derive(base), acts) as Node
+  const out = flat(warn)
+  expect(out.includes('Expiring soon')).toBe(true)
+  expect(out.includes('+$1.98 est.')).toBe(true)
+  expect(find(warn, 'Svg').length >= 2).toBe(true)
+
+  const cold = cachePaneDesktop(el, derive({ ...base, now: 401_000 }), acts) as Node
+  expect(flat(cold).includes('Compact now')).toBe(true)
+
+  for (const g of [{ ...base, billing: 'sub' as const }, { ...base, touch: { ...base.touch!, model: 'some-new-model' } }]) {
+    const out2 = flat(cachePaneDesktop(el, derive(g), acts) as Node)
+    expect(out2.includes('$')).toBe(false)
+  }
+  expect(flat(cachePaneDesktop(el, derive({ ...base, touch: null }), acts) as Node).includes('No cache yet')).toBe(true)
+})
+
+test('desktop band appears only when it matters', () => {
+  expect(cacheBandDesktop(el, derive({ ...base, now: 1_000 }), acts)).toBe(null)
+  expect(flat(cacheBandDesktop(el, derive(base), acts) as Node).includes('Keep warm')).toBe(true)
+  expect(flat(cacheBandDesktop(el, derive({ ...base, now: 401_000 }), acts) as Node).includes('Compact now')).toBe(true)
+})
+
+test('svg builders emit one well-formed document each', () => {
+  const docs = [
+    ringSvg(0.5, 0.49, '#3f9a4a'),
+    ringSvg(0, 0, '#d4503f'),
+    stepsSvg([{ beat: 'hit', tip: 'a & b <c>' }, { beat: 'part', tip: 'x' }, { beat: 'miss', tip: 'y' }]),
+    miniBarSvg(0.3, '#d08f12'),
+  ]
+  for (const d of docs) {
+    expect(d.startsWith('<svg')).toBe(true)
+    expect(d.endsWith('</svg>')).toBe(true)
+    expect((d.match(/<svg/g) ?? []).length).toBe(1)
+    expect(d.includes('<c>')).toBe(false)
+  }
+})
