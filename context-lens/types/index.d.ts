@@ -1,25 +1,42 @@
-export type Row = { name: string; tokens: number; color: string; kind: 'used' | 'free' | 'buffer' | 'deferred' }
-export type Item = { label: string; group: string; tokens: number }
+export type Cat = { name: string; tokens: number; color: string; kind: 'used' | 'free' | 'buffer' | 'deferred' }
+export type Named = { label: string; tokens: number }
+export type Server = { label: string; tokens: number; tools: number }
 export type Lens = {
-  rows: Row[]
-  /** Largest single things in the window across memory, MCP, skills, agents. */
-  items: Item[]
-  /** Messages split by where they came from (tool results by tool, prompts, replies). */
-  messages: Item[]
-  /** MCP tokens grouped by server. */
-  servers: Item[]
+  cats: Cat[]
+  /** Tokens in use, over the compaction window `max`; `window` is the model's own. */
   total: number
   max: number
-  percent: number
+  window: number
   model: string
-  autoCompactAt?: number
-  mode: 'api' | 'sub'
+  autoCompactAt: number | null
+  servers: Server[]
+  memory: Named[]
+  skills: Named[]
+  agents: Named[]
+  /** Messages split by where they came from, scaled to the Messages row. */
+  sources: Named[]
+  /** Everything in the window that is not Messages. */
+  overhead: number
+  billing: 'api' | 'sub'
   limitPct: number | null
 }
+export type Point = { total: number; overhead: number; isCompaction: boolean }
 export type Tab = 'category' | 'items' | 'whatif' | 'trend'
 
 declare module 'claude-code' {
   interface PluginState {
-    'context-lens': { lens: Lens | null; isBandOn: boolean; tab: Tab; history: number[] }
+    'context-lens': {
+      lens: Lens | null
+      isBandOn: boolean
+      tab: Tab
+      history: Point[]
+      /** Label of the item the What-if tab is about; '' means the largest. */
+      whatIf: string
+      /** Items-tab groups that are open. */
+      open: string[]
+      /** Start of the last main-thread request, to judge whether the cache is cold. */
+      lastTurnAt: number
+      now: number
+    }
   }
 }

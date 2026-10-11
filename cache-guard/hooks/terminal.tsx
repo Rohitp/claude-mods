@@ -136,7 +136,7 @@ function paneLines(v: View, iw: number): Seg[][] {
   if (v.mode === 'api') {
     b.push([S('Miss ', 'dim'), S(`+${usd(v.miss ?? 0)}`, 'fg'), S(' · ping ', 'dim'), S(usd(v.ping ?? 0), 'fg'), S(' · est.', 'dim')])
   } else if (v.mode === 'sub') {
-    b.push([S(`A miss re-sends it at ${WRITE}x · a ping re-reads it at ${v.readMult}x`, 'dim')])
+    b.push([S(`A miss re-sends it at ${WRITE}x`, 'dim')], [S(`A ping re-reads it at ${v.readMult}x`, 'dim')])
     if (v.limitPct !== null) b.push([S('5h window ', 'dim'), S(`${v.limitPct}%`, 'fg'), S(' used', 'dim')])
   } else {
     b.push([S(`Miss ${WRITE}x · ping ${v.readMult}x · prices unknown`, 'dim')])
@@ -207,11 +207,10 @@ function paneLines(v: View, iw: number): Seg[][] {
     .forEach(x => {
       const d = new Date(x.at)
       const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-      const cost = v.mode === 'api' ? '' : ''
       b.push(
         lr(
           [S(`${time}  `, 'dim'), S(x.cause, x.cause === 'cause unknown' ? 'dim' : 'fg'), S(iw >= 50 && x.detail ? `  ${x.detail}` : '', 'dim')],
-          [S(`${fk(x.tokens)}${cost}`, 'fg')],
+          [S(v.mode === 'api' && v.missPerToken !== null ? `+${usd(x.tokens * v.missPerToken)}` : `${fk(x.tokens)} × ${WRITE}`, 'fg')],
           iw,
         ),
       )

@@ -75,6 +75,8 @@ export type View = {
   beats: Beat[]
   bustTokens: number
   bustCost: number | null
+  /** Dollars a rewritten token costs above a read, when the price is known. */
+  missPerToken: number | null
   isDismissed: boolean
   ttlMs: number
   expiredMs: number
@@ -124,6 +126,7 @@ export function derive(g: Guard): View {
     beats: g.beats,
     bustTokens,
     bustCost: bustD === null ? null : bustD * (WRITE - r),
+    missPerToken: price ? (price.base / 1e6) * (WRITE - r) : null,
     isDismissed: !!t && g.dismissedAt > 0 && g.dismissedAt === t.at,
     ttlMs: g.ttlMs,
     expiredMs: t ? Math.max(0, g.now - t.at - g.ttlMs) : 0,
