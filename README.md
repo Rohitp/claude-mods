@@ -83,12 +83,6 @@ Everything stays on your machine.
 - Tests cover the model, layouts and trees. The mods have not been exercised in a live desktop session.
 - The mod API is early access and moves between Claude Code releases. Written against 2.1.296.
 
-## Checking what the engine really draws
-
-`scripts/capture.py` runs Claude Code in a pseudo-terminal with both mods loaded, sends prompts and
-slash commands, clicks controls with mouse events, and prints the screen with its colours. It is how
-the tab, colour and band-stacking problems were found. See the header of the script for usage.
-
 ## Development
 
 ```
