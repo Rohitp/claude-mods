@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Beat, Bust } from '../types'
 import { fit, mmss, dur } from './layout'
-import { MAX_KEEP_MS, PING_LEAD_MS, WARN_MS, breakEven, derive, readMult, statusText, toastText } from './model'
+import { MAX_KEEP_MS, sanitizeGuard, PING_LEAD_MS, WARN_MS, breakEven, derive, readMult, statusText, toastText } from './model'
 import type { Guard, View } from './model'
 import { cacheBandDesktop, cachePaneDesktop } from './desktop'
 import type { DesktopEl } from './desktop'
@@ -37,7 +37,7 @@ let warnedAt = -1
 let timer: { cancel: () => void } | null = null
 
 async function load($: EngineInterface): Promise<Guard> {
-  return {
+  return sanitizeGuard({
     billing: await read($, billingAtom),
     ttlMs: await read($, ttlAtom),
     touch: await read($, touchAtom),
@@ -53,7 +53,7 @@ async function load($: EngineInterface): Promise<Guard> {
     isAvailable: await read($, availableAtom),
     dismissedAt: await read($, dismissedAtom),
     lastTurnAt: await read($, lastTurnAtom),
-  }
+  })
 }
 
 async function stopKeepWarm($: EngineInterface, why: string) {

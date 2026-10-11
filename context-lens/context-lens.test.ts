@@ -166,3 +166,16 @@ test('svg builders emit one well-formed document each', () => {
     expect(d.includes('<x>')).toBe(false)
   }
 })
+
+// ---- state surviving a hot reload from an earlier version -------------------------------
+import { sanitizeHistory, sanitizeLens } from './hooks/model'
+
+test('state from the previous version is ignored, not rendered', () => {
+  const old = { rows: [], items: [], messages: [], servers: [], total: 400 * K, max: 1000 * K, percent: 40, model: 'm', mode: 'api', limitPct: null }
+  expect(sanitizeLens(old)).toBe(null)
+  expect(sanitizeLens(lens(412 * K)) === null).toBe(false)
+  expect(sanitizeHistory([40, 41, 42])).toEqual([])
+  expect(sanitizeHistory([{ total: 1, overhead: 1, isCompaction: false }, 7]).length).toBe(1)
+  // and the whole view degrades to first-run rather than throwing
+  expect(derive(sanitizeLens(old), sanitizeHistory([40, 41]), 0, 0).state).toBe('empty')
+})

@@ -9,7 +9,7 @@ import type { View } from './model'
 export type Acts = Record<string, () => void>
 type El = Pick<Elements['terminal'], 'Box' | 'Text' | 'Button'>
 
-const bracket = (label: string, act: string, hk?: string): Seg => S(`[ ${label} ]`, 'accent b', { act, hk })
+const bracket = (label: string, act: string): Seg => S(`[ ${label} ]`, 'accent b', { act, primary: true })
 
 const modeLabel = (v: View): string =>
   v.mode === 'api' ? 'API · est.' : v.mode === 'sub' ? 'subscription' : 'prices unknown'
@@ -85,7 +85,7 @@ function paneLines(v: View, iw: number): Seg[][] {
     lr(
       [
         S('Keep warm  ', 'fg b'),
-        v.isKeepWarm ? S('[■ on ]', 'ok b', { act: 'warm', hk: 'k' }) : S('[□ off]', 'dim', { act: 'warm', hk: 'k' }),
+        v.isKeepWarm ? S('[■ on ]', 'ok b', { act: 'warm' }) : S('[□ off]', 'dim', { act: 'warm' }),
       ],
       iw >= 50 ? [S(note ?? 'manual · pings 30s before expiry', 'dim')] : [],
       iw,
@@ -151,7 +151,7 @@ function paneLines(v: View, iw: number): Seg[][] {
         'fg',
       ),
     )
-    b.push([bracket('Compact now', 'compact', 'c'), S('   or just keep working', 'dim')])
+    b.push([bracket('Compact now', 'compact'), S('   or just keep working', 'dim')])
   }
 
   b.push([])
@@ -233,6 +233,7 @@ function paneLines(v: View, iw: number): Seg[][] {
 }
 
 // ---- drawing ---------------------------------------------------------------------------
+const noop = (): void => {}
 const styleOf = (s: Seg): Record<string, unknown> => {
   const p: Record<string, unknown> = {}
   if (s.c) p.color = s.c
@@ -263,7 +264,11 @@ export function row(el: El, segs: Seg[], acts: Acts, key: string) {
     <Box key={key}>
       {segs.map((s, i) =>
         s.act ? (
-          <Button key={`${key}.${s.act}`} label={s.t} hotkey={s.hk} onPress={acts[s.act]} />
+          s.primary ? (
+            <Button key={`${key}.${i}`} label={s.t.slice(2, -2)} variant="primary" onPress={acts[s.act] ?? noop} />
+          ) : (
+            <Button key={`${key}.${i}`} label={s.t} plain onPress={acts[s.act] ?? noop} />
+          )
         ) : (
           <Text key={`${key}.${i}`} {...styleOf(s)}>{s.t}</Text>
         ),

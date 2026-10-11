@@ -109,3 +109,28 @@ export function whatIf(v: View, c: Candidate): WhatIf | null {
   const turns = v.isCold ? 0 : Math.max(10, Math.round(rebuildTokens / Math.max(1, saveTokens) / 10) * 10)
   return { item: c, frees: c.tokens, pctWindow: (c.tokens / l.window) * 100, savesPerTurn: per, rebuild, turns, isCold: v.isCold }
 }
+
+const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x)
+
+/** State from an earlier version survives a hot reload; accept only the current shape. */
+export function sanitizeLens(x: unknown): Lens | null {
+  const l = x as Partial<Lens> | null
+  if (!l || typeof l !== 'object') return null
+  const ok =
+    Array.isArray(l.cats) &&
+    Array.isArray(l.servers) &&
+    Array.isArray(l.memory) &&
+    Array.isArray(l.skills) &&
+    Array.isArray(l.agents) &&
+    Array.isArray(l.sources) &&
+    isNum(l.total) &&
+    isNum(l.window) &&
+    isNum(l.max) &&
+    typeof l.model === 'string'
+  return ok ? (l as Lens) : null
+}
+
+export function sanitizeHistory(x: unknown): Point[] {
+  if (!Array.isArray(x)) return []
+  return x.filter((p): p is Point => !!p && typeof p === 'object' && isNum((p as Point).total) && isNum((p as Point).overhead))
+}

@@ -10,8 +10,8 @@ export type Seg = {
   c?: string
   /** Name of an action; drawn as a Button and pressed through the `acts` map. */
   act?: string
-  /** One digit or lowercase letter that presses the Button while its pane is focused. */
-  hk?: string
+  /** Drawn as the engine's primary button, `[ label ]`; `t` holds the bracketed text for width. */
+  primary?: boolean
   tight?: boolean
 }
 export type Item = { p: number; tight?: boolean; segs: Seg[] }

@@ -155,3 +155,28 @@ export function toastText(v: View): string {
   }
   return `Cache expires in ${v.clock}. After that, the next turn re-sends the whole prefix at ${WRITE}x. Keep warm re-reads it at ${v.readMult}x each time.`
 }
+
+const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x)
+
+/** State from an earlier version survives a hot reload; keep only what fits the current shape. */
+export function sanitizeGuard(g: Guard): Guard {
+  const t = g.touch as Partial<Touch> | null
+  const touch: Touch | null =
+    t && typeof t === 'object' && isNum(t.at) && isNum(t.tokens) && typeof t.model === 'string'
+      ? { at: t.at, tokens: t.tokens, model: t.model, effort: typeof t.effort === 'string' ? t.effort : 'default' }
+      : null
+  const busts = (Array.isArray(g.busts) ? g.busts : [])
+    .filter(b => !!b && isNum(b.at) && isNum(b.tokens) && typeof b.cause === 'string')
+    .map(b => ({ at: b.at, tokens: b.tokens, cause: b.cause, detail: typeof b.detail === 'string' ? b.detail : '' }))
+  const beats = (Array.isArray(g.beats) ? g.beats : []).filter(b => b === 'hit' || b === 'part' || b === 'miss')
+  return {
+    ...g,
+    touch,
+    busts,
+    beats,
+    billing: g.billing === 'sub' ? 'sub' : 'api',
+    ttlMs: isNum(g.ttlMs) && g.ttlMs > 0 ? g.ttlMs : 300_000,
+    now: isNum(g.now) ? g.now : 0,
+    limitPct: isNum(g.limitPct) ? g.limitPct : null,
+  }
+}

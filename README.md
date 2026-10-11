@@ -49,7 +49,7 @@ API billing shows dollars, always suffixed "est."; a subscription shows tokens, 
 
 | Design | Here | Why |
 |---|---|---|
-| Global keys `alt+l`, `alt+g`, `alt+k`, `alt+c` | Pane-local button hotkeys only (`1`-`4` tabs, `k` keep warm, `c` compact) | The mod API has no global key chords; a binding needs a decision before shipping |
+| Global keys `alt+l`, `alt+g`, `alt+k`, `alt+c` | None yet: buttons are drawn plain or primary so widths stay exact, and a hotkey prefix would shift them | The mod API has no global key chords; a binding needs a decision before shipping |
 | `~2.0% of 5h` per ping or miss | The actual 5h window reading, plus multipliers | Plan limits are not exposed, so a per-action percentage would be invented |
 | Toast with a button | Plain text toast | The engine toast carries text only |
 | Fixed-height boxed pane | The engine's pane frame, title and close | The engine owns the frame and height |

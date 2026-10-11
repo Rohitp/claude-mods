@@ -157,3 +157,15 @@ test('svg builders emit one well-formed document each', () => {
     expect(d.includes('<c>')).toBe(false)
   }
 })
+
+import { sanitizeGuard } from './hooks/model'
+
+test('state from the previous version is repaired, not rendered raw', () => {
+  const oldBust = { at: 1, tokens: 5, cause: 'idle' } as never
+  const g = sanitizeGuard({ ...base, busts: [oldBust, null as never], beats: ['hit', 'x' as never], touch: { at: 'x' } as never })
+  expect(g.touch).toBe(null)
+  expect(g.busts.length).toBe(1)
+  expect(g.busts[0]!.detail).toBe('')
+  expect(g.beats).toEqual(['hit'])
+  expect(derive(g).state).toBe('empty')
+})

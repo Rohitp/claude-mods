@@ -5,7 +5,7 @@ import type { Cat, Lens, Named, Point, Server, Tab } from '../types'
 import { fit } from './layout'
 import { ctxBandDesktop, ctxPaneDesktop } from './desktop'
 import type { DesktopEl } from './desktop'
-import { derive } from './model'
+import { derive, sanitizeHistory, sanitizeLens } from './model'
 import type { View } from './model'
 import { ctxBand, ctxPane, row } from './terminal'
 import type { Acts } from './terminal'
@@ -93,7 +93,8 @@ async function refresh($: EngineInterface) {
   const lens = await measure($)
   if (!lens) return
   await update($, lensAtom, () => lens)
-  await update($, historyAtom, (h: Point[]) => {
+  await update($, historyAtom, (old: unknown) => {
+    const h = sanitizeHistory(old)
     const prev = h[h.length - 1]
     const point: Point = {
       total: lens.total,
@@ -105,8 +106,8 @@ async function refresh($: EngineInterface) {
 }
 
 async function view($: EngineInterface): Promise<View> {
-  const lens = await read($, lensAtom)
-  const h = await read($, historyAtom)
+  const lens = sanitizeLens(await read($, lensAtom))
+  const h = sanitizeHistory(await read($, historyAtom))
   const now = (await read($, nowAtom)) || (await $.clock.now())
   return derive(lens, h, now, await read($, lastTurnAtom))
 }
@@ -123,6 +124,12 @@ export const register: Register = on => {
     await $.command.register({ name: 'ctx', description: 'Context Lens: what fills the context window' })
     timer?.cancel()
     timer = $.clock.every(10_000, () => void tickNow($))
+    // A reload keeps the old state; measure again so the band is current at once.
+    try {
+      await refresh($)
+    } catch {
+      // no response in the live window yet
+    }
     return next(e)
   })
 
@@ -172,7 +179,7 @@ export const register: Register = on => {
       tab: await read($, tabAtom),
       open: await read($, openAtom),
       whatIf: await read($, whatIfAtom),
-      history: await read($, historyAtom),
+      history: sanitizeHistory(await read($, historyAtom)),
     }
     if (e.surface !== 'terminal') return ctxPaneDesktop($.ui.resolve(e) as DesktopEl, v, st, acts)
     const lines = ctxPane(v, st, Math.max(20, e.props.bodyColumns))

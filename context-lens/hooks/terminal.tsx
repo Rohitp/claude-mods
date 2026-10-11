@@ -10,7 +10,7 @@ import type { Cat, Point, Tab } from '../types'
 export type Acts = Record<string, () => void>
 type El = Pick<Elements['terminal'], 'Box' | 'Text' | 'Button'>
 
-const bracket = (label: string, act: string, hk?: string): Seg => S(`[ ${label} ]`, 'accent b', { act, hk })
+const bracket = (label: string, act: string): Seg => S(`[ ${label} ]`, 'accent b', { act, primary: true })
 
 const SHORT: Record<string, string> = {
   'MCP tools': 'MCP',
@@ -125,7 +125,7 @@ function paneLines(v: View, st: PaneState, iw: number): Seg[][] {
   const l = v.lens
   const b: Seg[][] = []
   const tabs: Seg[] = []
-  TABS.forEach((t, i) => tabs.push(S(` ${t.label} `, t.id === st.tab ? 'sel' : 'dim', { act: `tab:${t.id}`, hk: String(i + 1) })))
+  TABS.forEach(t => tabs.push(S(` ${t.label} `, t.id === st.tab ? 'sel' : 'dim', { act: `tab:${t.id}` })))
   b.push(lr([S('Context Lens', 'fg b')], [S(modeLabel(v), 'dim')], iw))
   b.push(tabs, [S('─'.repeat(iw), 'line')])
 
@@ -168,7 +168,7 @@ function paneLines(v: View, st: PaneState, iw: number): Seg[][] {
           'fg',
         ),
       )
-      b.push([bracket('Compact now', 'compact', 'c')], [])
+      b.push([bracket('Compact now', 'compact')], [])
     }
     b.push(...carryLines(v))
   }
@@ -311,6 +311,7 @@ function paneLines(v: View, st: PaneState, iw: number): Seg[][] {
 }
 
 // ---- drawing ---------------------------------------------------------------------------
+const noop = (): void => {}
 const styleOf = (s: Seg): Record<string, unknown> => {
   const p: Record<string, unknown> = {}
   if (s.c) p.color = s.c
@@ -341,7 +342,11 @@ export function row(el: El, segs: Seg[], acts: Acts, key: string) {
     <Box key={key}>
       {segs.map((s, i) =>
         s.act ? (
-          <Button key={`${key}.${i}`} label={s.t} hotkey={s.hk} onPress={acts[s.act] ?? (() => {})} />
+          s.primary ? (
+            <Button key={`${key}.${i}`} label={s.t.slice(2, -2)} variant="primary" onPress={acts[s.act] ?? noop} />
+          ) : (
+            <Button key={`${key}.${i}`} label={s.t} plain onPress={acts[s.act] ?? noop} />
+          )
         ) : (
           <Text key={`${key}.${i}`} {...styleOf(s)}>{s.t}</Text>
         ),
