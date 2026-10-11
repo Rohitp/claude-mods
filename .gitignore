@@ -8,3 +8,6 @@ node_modules/
 
 # local design handoff, not published
 designs/
+
+# local dev tool, not published
+scripts/capture.py
