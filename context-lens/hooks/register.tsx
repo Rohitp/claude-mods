@@ -3,6 +3,8 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Cat, Lens, Named, Point, Server, Tab } from '../types'
 import { fit } from './layout'
+import { ctxBandDesktop, ctxPaneDesktop } from './desktop'
+import type { DesktopEl } from './desktop'
 import { derive } from './model'
 import type { View } from './model'
 import { ctxBand, ctxPane, row } from './terminal'
@@ -172,6 +174,7 @@ export const register: Register = on => {
       whatIf: await read($, whatIfAtom),
       history: await read($, historyAtom),
     }
+    if (e.surface !== 'terminal') return ctxPaneDesktop($.ui.resolve(e) as DesktopEl, v, st, acts)
     const lines = ctxPane(v, st, Math.max(20, e.props.bodyColumns))
     return <el.Box flexDirection="column">{lines.map((l, i) => row(el, l, acts, `r${i}`))}</el.Box>
   })
@@ -184,6 +187,7 @@ export const register: Register = on => {
       open: () => void $.ui.open({ id: PANE, title: 'Context Lens' }),
       compact: () => void $.session.compact(),
     }
+    if (e.surface !== 'terminal') return ctxBandDesktop($.ui.resolve(e) as DesktopEl, v, acts)
     return row(el, fit(ctxBand(v, Math.max(20, e.props.bodyColumns)), Math.max(20, e.props.bodyColumns)), acts, 'band')
   })
 }

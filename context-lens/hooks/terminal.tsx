@@ -258,13 +258,13 @@ function paneLines(v: View, st: PaneState, iw: number): Seg[][] {
   }
 
   if (st.tab === 'trend') {
-    const h = st.history
-    if (h.length < 2) {
+    const series = st.history
+    if (series.length < 2) {
       b.push([S('Not enough turns yet.', 'dim')])
       return b
     }
-    const n = Math.min(h.length, iw - 6)
-    const pts = h.slice(h.length - n)
+    const n = Math.min(series.length, iw - 6)
+    const pts = series.slice(series.length - n)
     const H = 8
     const msgC = l.cats.find(c => /message/i.test(c.name))?.color ?? 'claude'
     const ovC = l.cats.find(c => /mcp/i.test(c.name))?.color ?? 'permission'
@@ -291,7 +291,7 @@ function paneLines(v: View, st: PaneState, iw: number): Seg[][] {
     b.push([S('█', 'fg', { c: msgC }), S(' messages  ', 'dim'), S('█', 'fg', { c: ovC }), S(` overhead ${fk(l.overhead)}  `, 'dim'), S('┄', 'warn'), S(` ${thr}%`, 'dim')])
     b.push([])
     if (v.growth !== null) {
-      b.push([S(`+${fk(Math.max(0, v.growth))}/turn`, 'fg b'), S(` average, last ${Math.min(10, h.length - 1)} turns`, 'dim')])
+      b.push([S(`+${fk(Math.max(0, v.growth))}/turn`, 'fg b'), S(` average, last ${Math.min(10, series.length - 1)} turns`, 'dim')])
       if (v.turnsLeft !== null) {
         b.push(
           v.turnsLeft < 1

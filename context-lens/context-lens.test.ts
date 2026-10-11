@@ -116,3 +116,53 @@ test('trend marks a compaction and reports growth', () => {
   expect(out.includes('▲ compacted')).toBe(true)
   expect(out.includes('/turn')).toBe(true)
 })
+
+// ---- desktop trees ---------------------------------------------------------------------
+import { ctxBandDesktop, ctxPaneDesktop } from './hooks/desktop'
+import { columnsSvg, miniStackSvg, rowBarSvg, stackedBarSvg } from './hooks/svg'
+
+type Node = { tag: string; props: Record<string, unknown>; kids: unknown[] } | string | number | false | null | undefined
+const el = { Box: 'Box', Text: 'Text', Button: 'Button', Svg: 'Svg' } as never
+const flat = (n: Node | Node[]): string => {
+  if (n === null || n === undefined || n === false) return ''
+  if (typeof n === 'string' || typeof n === 'number') return String(n)
+  if (Array.isArray(n)) return n.map(flat).join(' ')
+  const own = n.tag === 'Button' ? String(n.props.label ?? '') : n.tag === 'Svg' ? `[svg:${n.props.alt}]` : ''
+  return `${own} ${(n.kids as Node[]).map(flat).join(' ')}`
+}
+const acts = new Proxy({} as Record<string, () => void>, { get: () => () => {} })
+
+test('desktop pane renders every tab in every billing mode without dollars when it should not', () => {
+  const h = hist(300 * K, 842 * K)
+  for (const l of [lens(842 * K), lens(842 * K, 'sub'), lens(842 * K, 'api', 'some-new-model')]) {
+    const v = derive(l, h, 0, 0)
+    for (const tab of ['category', 'items', 'whatif', 'trend'] as const) {
+      const out = flat(ctxPaneDesktop(el, v, { tab, open: ['mcp', 'mem', 'msg'], whatIf: '', history: h }, acts) as Node)
+      expect(out.length > 20).toBe(true)
+      if (v.mode !== 'api') expect(out.includes('$')).toBe(false)
+    }
+  }
+})
+
+test('desktop band shows the alert action only when it matters', () => {
+  const h = hist(300 * K, 842 * K)
+  expect(flat(ctxBandDesktop(el, derive(lens(412 * K), h, 0, 0), acts) as Node).includes('Compact now')).toBe(false)
+  expect(flat(ctxBandDesktop(el, derive(lens(842 * K), h, 0, 0), acts) as Node).includes('Compact now')).toBe(true)
+  expect(flat(ctxBandDesktop(el, derive(null, [], 0, 0), acts) as Node).includes('send a prompt')).toBe(true)
+})
+
+test('svg builders emit one well-formed document each', () => {
+  const l = lens(412 * K)
+  const docs = [
+    stackedBarSvg(l.cats.map(c => ({ cat: c, tip: `${c.name} & <x>` })), 0.92),
+    miniStackSvg(l.cats),
+    rowBarSvg(0.4, '#2fa392'),
+    columnsSvg(hist(100 * K, 400 * K), 1000 * K, 92),
+  ]
+  for (const d of docs) {
+    expect(d.startsWith('<svg')).toBe(true)
+    expect(d.endsWith('</svg>')).toBe(true)
+    expect((d.match(/<svg/g) ?? []).length).toBe(1)
+    expect(d.includes('<x>')).toBe(false)
+  }
+})
