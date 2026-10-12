@@ -99,6 +99,11 @@ export function categorize(text: string): Category {
 
 const errKey = (t: string) => t.replace(/\b\d+\b/g, '#').replace(/\s+/g, ' ').trim().slice(0, 160)
 const firstLine = (t: string) => (t.split('\n').find(l => l.trim()) ?? '').trim()
+/** The informative line of a failure: the engine's "Exit code 1" header says nothing by itself. */
+const errorLine = (t: string) => {
+  const lines = t.split('\n').map(l => l.trim()).filter(Boolean)
+  return lines.find(l => !/^exit code \d+$/i.test(l)) ?? lines[0] ?? ''
+}
 
 function blank(c: Call, d: ReturnType<typeof describe>): Entry {
   return {
@@ -157,8 +162,8 @@ export function track(map: Map<string, Entry>, c: Call): Entry {
       const k = errKey(c.text)
       e.sameErr = k === e.lastErr ? e.sameErr + 1 : 1
       e.lastErr = k
-      e.errLine = firstLine(c.text)
-      evidence(e, c, `${tag(c.turn)}  ${c.tool}  ${d.sample}  → ${firstLine(c.text)}`)
+      e.errLine = errorLine(c.text)
+      evidence(e, c, `${tag(c.turn)}  ${c.tool}  ${d.sample}  → ${errorLine(c.text)}`)
     }
   } else {
     e.sameErr = 0

@@ -57,6 +57,12 @@ test('the same error three times in a row is a loop', () => {
   expect(e.turns.join(',')).toBe('10,11,12')
 })
 
+test('the reason skips the Exit code header line', () => {
+  const m = run([bash('cat nope', 'Exit code 1\ncat: nope: No such file or directory', true)])
+  expect(only(m).errLine).toBe('cat: nope: No such file or directory')
+  expect(only(m).ev[0].endsWith('→ cat: nope: No such file or directory')).toBe(true)
+})
+
 test('different errors are progress, not a loop', () => {
   const m = run([bash('npm test', 'FAIL a.test', true), bash('npm test', 'FAIL b.test', true), bash('npm test', 'FAIL c.test', true)])
   expect(only(m).sameErr).toBe(1)
