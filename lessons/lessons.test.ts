@@ -224,6 +224,7 @@ const view = (over: Partial<View> = {}): View => {
     corrections: 0,
     trend: [{ w: 41000, r: false }, { w: 38000, r: false }, { w: 28700, r: true }],
     ui: { tab: 0, open: null, view: 'list', id: '', polished: '', msg: '', later: 0, rev: 0 },
+    openId: props[0]?.id ?? null,
     canUndo: false,
     append: { file: 'CLAUDE.local.md', line: 13, prev: 'Use pnpm, never npm.' },
     removal: { file: 'CLAUDE.md', from: 15, to: 31, lines: ['## API style guide', 'Use kebab-case.'], tokens: 640 },
@@ -292,6 +293,15 @@ test('pane: tabs and buttons are named actions', () => {
   const lines = lessonsPane({ ...v, ui: { ...v.ui, open: v.props[0].id } }, 56)
   const acts = lines.flat().filter(s => s.act).map(s => s.act as string)
   for (const a of ['tab:0', 'tab:1', 'tab:2', 'tab:3', `exp:${v.props[0].id}`, `jit:${v.props[0].id}`, `alw:${v.props[0].id}`, `dis:${v.props[0].id}`, `pol:${v.props[0].id}`]) expect(acts.includes(a)).toBe(true)
+})
+
+test('the top proposal is open by default and says why', () => {
+  const v = view()
+  const text = lessonsPane(v, 56).map(l => l.map(s => s.t).join('')).join('\n')
+  expect(text.includes('Why')).toBe(true)
+  expect(text.includes('failed 3 times in a row')).toBe(true)
+  const none = lessonsPane({ ...v, openId: null }, 56).map(l => l.map(s => s.t).join('')).join('\n')
+  expect(none.includes('Deliver as')).toBe(false)
 })
 
 test('toast is one plain sentence', () => {

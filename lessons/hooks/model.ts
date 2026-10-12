@@ -299,6 +299,8 @@ export type Proposal = {
   netAlways: number
   matcher: Matcher
   ev: string[]
+  /** Why this became a proposal, in a sentence or two. */
+  why: string
 }
 
 export function idOf(sig: string): string {
@@ -343,9 +345,23 @@ export function propose(map: Map<string, Entry>, taken: Set<string>, turns: numb
       netAlways: saved - tokens * Math.max(1, turns),
       matcher: m,
       ev: e.ev.slice(),
+      why: whyText(e, kind, n, saved),
     })
   }
   return out.sort((a, b) => b.netJit - a.netJit)
+}
+
+/** The reason a pattern became a proposal, from what was measured. */
+export function whyText(e: Entry, kind: Kind, n: number, saved: number): string {
+  const call = e.tool.toLowerCase() === 'bash' ? `\`${e.sample}\`` : `${e.tool} ${e.sample}`
+  const tok = saved > 0 ? ` That is about ${saved.toLocaleString('en-US')} tokens of output you paid for more than once.` : ''
+  if (kind === 'correction')
+    return `You rejected or interrupted ${call} ${e.corrections === 1 ? 'once' : `${e.corrections} times`}. A rule asks the model to stop before you have to.`
+  if (e.paged && e.errors < e.count)
+    return `${call} was re-run ${n} times with different limits, each run returning output the previous one had cut off.${tok}`
+  const why = e.errLine ? ` with "${e.errLine.slice(0, 80)}"` : ''
+  if (kind === 'loop') return `${call} failed ${n} times in a row${why}, and the model retried it the same way each time.${tok}`
+  return `${call} failed ${n} times${why}. A rule saves the retries.${tok}`
 }
 
 export type LoopRow = { sig: string; at: number; kl: string; call: string; n: number; wasted: number; live: boolean; err: string; note: string; proposal: string | null }

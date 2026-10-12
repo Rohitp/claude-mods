@@ -108,7 +108,7 @@ function proposals(el: El, v: View, acts: Acts) {
       </Box>
       <Text dimColor>Saved is measured this session. Carry and net are estimates.</Text>
       {v.props.map(p => {
-        const open = p.id === v.ui.open
+        const open = p.id === v.openId
         const neg = p.netJit < 0
         return (
           <Box key={p.id} flexDirection="column" borderStyle="round" paddingX={1} gap={1}>
@@ -128,6 +128,10 @@ function proposals(el: El, v: View, acts: Acts) {
                 <Box flexDirection="column" borderStyle="round" paddingX={1}>
                   <Text dimColor>Rule</Text>
                   <Text>{p.text}</Text>
+                </Box>
+                <Box flexDirection="column">
+                  <Text bold>Why</Text>
+                  <Text>{p.why}</Text>
                 </Box>
                 <Box flexDirection="column">
                   <Text bold>Evidence <Text dimColor>· {p.turns ? `turns ${p.turns}` : p.kl}</Text></Text>

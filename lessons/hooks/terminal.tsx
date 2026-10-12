@@ -23,6 +23,8 @@ export type View = {
   corrections: number
   trend: Array<{ w: number; r: boolean }>
   ui: Ui
+  /** The row shown expanded: the person's pick, else the top proposal. */
+  openId: string | null
   /** Something can be undone until the next turn. */
   canUndo: boolean
   /** Where an always-on rule would land, for the confirm view. */
@@ -157,7 +159,7 @@ function proposals(v: View, iw: number): Seg[][] {
   b.push(...wrap('Saved is measured this session. Carry and net are estimates.', iw, 'dim'))
   b.push([S('✕ failure  ↻ loop  ↩ correction', 'dim')], [])
   v.props.forEach((p, i) => {
-    const open = p.id === v.ui.open
+    const open = p.id === v.openId
     const neg = p.netJit < 0
     const head: Seg[] = [Sm(open ? '−' : '+', `exp:${p.id}`), S(' '), S(GL[p.kind], neg ? 'dim' : 'fg'), S(' ')]
     b.push([...head, S(trunc(p.text, iw - len(head)), neg ? 'dim' : 'fg')])
@@ -165,6 +167,8 @@ function proposals(v: View, iw: number): Seg[][] {
     if (open) {
       b.push([])
       b.push(...block(p.text, iw, 4, 'rule'))
+      b.push([S('    Why', 'fg b')])
+      b.push(...ind(4, wrap(p.why, iw - 4, 'fg')))
       b.push([S('    Evidence', 'fg b'), S(` · ${p.turns ? (p.n > 1 ? 'turns ' : 'turn ') + p.turns : p.kl}`, 'dim')])
       // The same call repeated in one turn reads once, with a count.
       const evs: Array<[string, number]> = []

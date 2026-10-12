@@ -192,6 +192,7 @@ async function buildView($: EngineInterface): Promise<View> {
     corrections,
     trend: [...history.trend, { w: [...entries.values()].reduce((n, e) => n + wastedTokens(e), 0), r: rules.length > 0 }].slice(-10),
     ui,
+    openId: ui.open === null ? (props[0]?.id ?? null) : ui.open === '' ? null : ui.open,
     canUndo: undo !== null,
     append,
     removal,
@@ -356,7 +357,7 @@ function actionsFor($: EngineInterface, v: View, openPane: () => void): Acts {
     acts[`tab:${i}`] = () => void setUi($, { tab: i, view: 'list', msg: '' })
   })
   for (const p of v.props) {
-    acts[`exp:${p.id}`] = () => void setUi($, { open: v.ui.open === p.id ? null : p.id })
+    acts[`exp:${p.id}`] = () => void setUi($, { open: v.openId === p.id ? '' : p.id })
     acts[`jit:${p.id}`] = () => void setUi($, { view: 'jit', id: p.id, msg: '' })
     acts[`alw:${p.id}`] = () => void setUi($, { view: 'always', id: p.id, msg: '' })
     acts[`pol:${p.id}`] = () => void setUi($, { view: 'polish', id: p.id, msg: '' })
