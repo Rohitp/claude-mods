@@ -29,6 +29,7 @@ import {
   sanitizeHistory,
   sanitizeRules,
   sanitizeUi,
+  sessionWaste,
   shouldHint,
   tokensOf,
   track,
@@ -215,7 +216,7 @@ async function buildView($: EngineInterface): Promise<View> {
     sessions: history.sessions,
     failures,
     corrections,
-    trend: [...history.trend, { w: [...entries.values()].reduce((n, e) => n + wastedTokens(e), 0), r: rules.length > 0 }].slice(-10),
+    trend: [...history.trend, { w: sessionWaste(entries), r: rules.length > 0 }].slice(-10),
     ui,
     openId: ui.open === null ? (props[0]?.id ?? null) : ui.open === '' ? null : ui.open,
     canUndo: undo !== null,
@@ -487,7 +488,7 @@ export const register: Register = (on, options) => {
   on('session.end', async ($, e, next) => {
     await ensureLoaded($)
     try {
-      const waste = [...entries.values()].reduce((n, x) => n + wastedTokens(x), 0)
+      const waste = sessionWaste(entries)
       const used = { ...history.used }
       for (const k of usedNow) used[k] = (used[k] ?? 0) + 1
       history = {

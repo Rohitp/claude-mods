@@ -23,6 +23,7 @@ import {
   sanitizeHistory,
   sanitizeRules,
   sanitizeUi,
+  sessionWaste,
   shouldHint,
   track,
   upsertBlock,
@@ -91,6 +92,13 @@ test('a loop stays a loop after it ends, so it can become a proposal', () => {
   expect(isLoop(e)).toBe(true)
   expect(loopRows(m, new Set()).length).toBe(1)
   expect(loopRows(m, new Set())[0].live).toBe(false)
+})
+
+test('the trend counts the same waste the loops tab does', () => {
+  const m = run([0, 1, 2].map(() => bash('cat nope', 'No such file or directory', true)))
+  track(m, bash('cat once', 'No such file or directory', true))
+  const loops = loopRows(m, new Set()).reduce((n, l) => n + l.wasted, 0)
+  expect(sessionWaste(m)).toBe(loops)
 })
 
 test('a hint is given once per step, not on every repeat', () => {

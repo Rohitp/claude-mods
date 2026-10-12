@@ -369,6 +369,13 @@ export function whyText(e: Entry, kind: Kind, n: number, saved: number): string 
   return `${call} failed ${n} times${why}. A rule saves the retries.${tok}`
 }
 
+/** What this session wasted in the patterns that became loops, corrections or proposals; the trend's current bar. */
+export function sessionWaste(map: Map<string, Entry>): number {
+  let n = 0
+  for (const e of map.values()) if (wasLoop(e) || e.corrections > 0 || e.errors >= 2) n += wastedTokens(e)
+  return n
+}
+
 export type LoopRow = { sig: string; at: number; kl: string; call: string; n: number; wasted: number; live: boolean; err: string; note: string; proposal: string | null }
 
 /** This session's loops, live ones first. */
