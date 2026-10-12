@@ -63,6 +63,7 @@ const usedNow = new Set<string>()
 let rules: Rule[] = []
 let history: History = emptyHistory()
 let projKey = ''
+let isLoaded = false
 let isLive = true
 let billing: 'api' | 'sub' = 'api'
 let undo: { kind: 'rule' | 'dismiss' | 'retire' | 'remove' | 'keep'; id: string; rule?: Rule; path?: string; from?: number; lines?: string[] } | null = null
@@ -82,6 +83,23 @@ async function setUi($: EngineInterface, patch: Partial<Ui>) {
 /** A change a drawing reads from module memory: redraw the readers. */
 async function touch($: EngineInterface) {
   await update($, uiAtom, u => ({ ...sanitizeUi(u), rev: sanitizeUi(u).rev + 1 }))
+}
+
+/** Loads the project's rules, history and the session's tracked calls once; every hook calls it, so
+ * a hot reload that does not raise `session.start` still comes back with its state. */
+async function ensureLoaded($: EngineInterface) {
+  if (isLoaded) return
+  isLoaded = true
+  projKey = idOf(await $.session.root())
+  rules = sanitizeRules(await $.store.get(`rules:${projKey}`))
+  history = sanitizeHistory(await $.store.get(`history:${projKey}`))
+  for (const k of history.kept) kept.add(k)
+  const saved = (await $.store.get(`session:${projKey}`)) as { id?: string; entries?: unknown; used?: unknown } | null
+  if (saved && saved.id === (await $.session.id())) {
+    for (const e2 of sanitizeEntries(saved.entries)) if (!entries.has(e2.sig)) entries.set(e2.sig, e2)
+    if (Array.isArray(saved.used)) for (const u of saved.used) if (typeof u === 'string') usedNow.add(u)
+  }
+  log($, 'loaded', { rules: rules.length, sessions: history.sessions, restored: entries.size })
 }
 
 async function save($: EngineInterface) {
@@ -144,6 +162,7 @@ async function loadMemory($: EngineInterface, force = false) {
 
 // ---- view -----------------------------------------------------------------------------------------
 async function buildView($: EngineInterface): Promise<View> {
+  await ensureLoaded($)
   const ui = sanitizeUi(await read($, uiAtom))
   const turns = await $.session.turns()
   const perSession = Math.max(turns, turnsPerSession(history))
@@ -460,20 +479,13 @@ export const register: Register = (on, options) => {
       name: 'lessons',
       description: 'Opens Lessons: proposals, active rules, loops and memory; `accept <id> [always]`, `retire <id>` work without the pane',
     })
-    projKey = idOf(await $.session.root())
-    rules = sanitizeRules(await $.store.get(`rules:${projKey}`))
-    history = sanitizeHistory(await $.store.get(`history:${projKey}`))
-    for (const k of history.kept) kept.add(k)
-    const saved = (await $.store.get(`session:${projKey}`)) as { id?: string; entries?: unknown; used?: unknown } | null
-    if (saved && saved.id === (await $.session.id())) {
-      for (const e2 of sanitizeEntries(saved.entries)) entries.set(e2.sig, e2)
-      if (Array.isArray(saved.used)) for (const u of saved.used) if (typeof u === 'string') usedNow.add(u)
-    }
+    await ensureLoaded($)
     log($, 'start', { rules: rules.length, sessions: history.sessions, live: isLive, restored: entries.size })
     return next(e)
   })
 
   on('session.end', async ($, e, next) => {
+    await ensureLoaded($)
     try {
       const waste = [...entries.values()].reduce((n, x) => n + wastedTokens(x), 0)
       const used = { ...history.used }
@@ -517,6 +529,7 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', async ($, e, next) => {
+    await ensureLoaded($)
     let turn = 0
     const id = (e as { tool_use_id?: string }).tool_use_id ?? `${Math.random()}`
     try {
@@ -540,6 +553,7 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => (next.called ? next(e) : next(e)))
 
   on('command.run', { command: 'lessons' }, async ($, e) => {
+    await ensureLoaded($)
     const [verb, id, how] = e.args.trim().split(/\s+/)
     if (verb === 'accept' && id) {
       const v = await buildView($)
