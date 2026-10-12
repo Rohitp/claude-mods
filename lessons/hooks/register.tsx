@@ -25,6 +25,7 @@ import {
   refsOf,
   removeLines,
   restoreLines,
+  sanitizeEntries,
   sanitizeHistory,
   sanitizeRules,
   sanitizeUi,
@@ -86,6 +87,11 @@ async function touch($: EngineInterface) {
 async function save($: EngineInterface) {
   await $.store.set(`rules:${projKey}`, rules)
   await $.store.set(`history:${projKey}`, { ...history, kept: [...kept].slice(-100) })
+}
+
+/** The session's tracked calls, kept so a reload or a resume does not start from nothing. */
+async function saveSession($: EngineInterface) {
+  await $.store.set(`session:${projKey}`, { id: await $.session.id(), entries: [...entries.values()].slice(-200), used: [...usedNow].slice(0, 300) })
 }
 
 const localPath = async ($: EngineInterface) => `${await $.session.root()}/${LOCAL_FILE}`
@@ -439,6 +445,7 @@ async function onCall($: EngineInterface, e: Record<string, unknown> & { tool: s
   const sig = `${entries.size}:${[...entries.values()].map(x => `${x.count}.${x.errors}.${x.corrections}.${x.peak}`).join(',')}:${rules.map(r => `${r.fired}.${r.recurred}`).join(',')}`
   if (sig !== signature) {
     signature = sig
+    await saveSession($)
     await touch($)
   }
   return notes
@@ -457,7 +464,12 @@ export const register: Register = (on, options) => {
     rules = sanitizeRules(await $.store.get(`rules:${projKey}`))
     history = sanitizeHistory(await $.store.get(`history:${projKey}`))
     for (const k of history.kept) kept.add(k)
-    log($, 'start', { rules: rules.length, sessions: history.sessions, live: isLive })
+    const saved = (await $.store.get(`session:${projKey}`)) as { id?: string; entries?: unknown; used?: unknown } | null
+    if (saved && saved.id === (await $.session.id())) {
+      for (const e2 of sanitizeEntries(saved.entries)) entries.set(e2.sig, e2)
+      if (Array.isArray(saved.used)) for (const u of saved.used) if (typeof u === 'string') usedNow.add(u)
+    }
+    log($, 'start', { rules: rules.length, sessions: history.sessions, live: isLive, restored: entries.size })
     return next(e)
   })
 
@@ -498,6 +510,7 @@ export const register: Register = (on, options) => {
     if (e.isAborted && inflight.size > 0) {
       for (const c of inflight.values()) interrupted(entries, { tool: c.tool, input: c.input, at: 0, turn: c.turn })
       inflight.clear()
+      await saveSession($)
       await touch($)
     }
     return next(e)

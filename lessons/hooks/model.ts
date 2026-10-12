@@ -584,3 +584,40 @@ export function sanitizeUi(v: unknown): Ui {
     rev: typeof o.rev === 'number' ? o.rev : 0,
   }
 }
+
+/** Rebuilds session entries from the store; anything not shaped like an Entry is dropped. */
+export function sanitizeEntries(v: unknown): Entry[] {
+  if (!Array.isArray(v)) return []
+  const num = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : 0)
+  const strs = (x: unknown) => (Array.isArray(x) ? x.filter((s): s is string => typeof s === 'string') : [])
+  const out: Entry[] = []
+  for (const r of v.slice(0, 200)) {
+    if (!r || typeof r !== 'object') continue
+    const o = r as Record<string, unknown>
+    if (typeof o.sig !== 'string' || typeof o.tool !== 'string' || typeof o.sample !== 'string') continue
+    out.push({
+      tool: o.tool,
+      sig: o.sig,
+      sample: o.sample,
+      count: num(o.count),
+      errors: num(o.errors),
+      sameErr: num(o.sameErr),
+      lastErr: typeof o.lastErr === 'string' ? o.lastErr : '',
+      errLine: typeof o.errLine === 'string' ? o.errLine : '',
+      category: typeof o.category === 'string' ? (o.category as Category) : null,
+      variants: strs(o.variants).slice(0, MAX_VARIANTS),
+      paged: o.paged === true,
+      bytes: num(o.bytes),
+      inBytes: num(o.inBytes),
+      peak: num(o.peak),
+      corrections: num(o.corrections),
+      hinted: num(o.hinted),
+      note: typeof o.note === 'string' ? o.note : '',
+      ev: strs(o.ev).slice(0, MAX_EV),
+      turns: Array.isArray(o.turns) ? o.turns.filter((x): x is number => typeof x === 'number').slice(0, 12) : [],
+      firstAt: num(o.firstAt),
+      lastAt: num(o.lastAt),
+    })
+  }
+  return out
+}

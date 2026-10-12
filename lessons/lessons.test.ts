@@ -19,6 +19,7 @@ import {
   propose,
   removeLines,
   restoreLines,
+  sanitizeEntries,
   sanitizeHistory,
   sanitizeRules,
   sanitizeUi,
@@ -187,6 +188,15 @@ test('the file block is replaced in place and removed when empty', () => {
   expect(two.includes('rule a')).toBe(false)
   expect(two.split(BLOCK_END).length).toBe(2)
   expect(upsertBlock(two, [])).toBe(base)
+})
+
+test('a session survives a reload: entries round-trip through the store shape', () => {
+  const m = run([0, 1, 2].map(() => bash('cat nope', 'cat: nope: No such file or directory', true, 5)))
+  const back = sanitizeEntries(JSON.parse(JSON.stringify([...m.values()])))
+  expect(back.length).toBe(1)
+  expect(loopSize(back[0])).toBe(3)
+  expect(back[0].ev.length).toBe(3)
+  expect(sanitizeEntries([{ sig: 1 }, 'x', null]).length).toBe(0)
 })
 
 test('persisted state from another shape is repaired, not trusted', () => {
