@@ -11,3 +11,6 @@ designs/
 
 # local dev tool, not published
 scripts/capture.py
+
+# written by the lessons mod when a rule is accepted always-on
+CLAUDE.local.md
