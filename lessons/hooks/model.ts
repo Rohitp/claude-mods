@@ -475,7 +475,8 @@ export function upsertBlock(file: string, texts: string[]): string {
   const before = has ? file.slice(0, a).replace(/\n+$/, '') : file.replace(/\n+$/, '')
   const after = has ? file.slice(b + BLOCK_END.length).replace(/^\n+/, '') : ''
   const block = texts.length ? [BLOCK_START, '## Lessons', ...texts.map(t => `- ${t}`), BLOCK_END].join('\n') : ''
-  return [before, block, after].filter(s => s.length > 0).join('\n\n') + '\n'
+  const body = [before, block, after].filter(s => s.length > 0).join('\n\n')
+  return body === '' ? '' : body + '\n'
 }
 
 /** Where a rule's line lands in the file `upsertBlock` would write (1-based). */

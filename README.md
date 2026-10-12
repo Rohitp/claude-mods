@@ -1,11 +1,12 @@
 # claude-mods
 
-Two small mods for Claude Code that show what fills your context window and when your prompt cache is about to go cold.
+Three small mods for Claude Code: what fills your context window, when your prompt cache is about to go cold, and which repeated mistakes are worth a rule.
 
 | Mod | Answers |
 |---|---|
 | **context-lens** | What is using my context window, and what does carrying it cost? |
 | **cache-guard** | When does my prompt cache expire, and what will the next turn cost if it does? |
+| **lessons** | What keeps going wrong in my sessions, and is a rule for it worth what it costs to carry? |
 
 ![Context Lens in the terminal](docs/images/terminal-context-lens.png)
 
@@ -14,12 +15,13 @@ Two small mods for Claude Code that show what fills your context window and when
 ```
 /plugin install context-lens --marketplace Rohitp/claude-mods
 /plugin install cache-guard  --marketplace Rohitp/claude-mods
+/plugin install lessons      --marketplace Rohitp/claude-mods
 ```
 
 Answer `y` to add the marketplace, then choose a scope. To try them from a checkout instead:
 
 ```
-claude --plugin-dir ./context-lens --plugin-dir ./cache-guard
+claude --plugin-dir ./context-lens --plugin-dir ./cache-guard --plugin-dir ./lessons
 ```
 
 Needs a Claude Code build with mod support (written against 2.1.296).
@@ -55,6 +57,20 @@ The cache band appears above the context band in the last minute before expiry (
 
 ![Cache band above the context band](docs/images/terminal-bands.png)
 
+## Lessons
+
+Catches failures, loops and corrections as they happen, and turns each into a one-line rule with a price. Nothing is written until you accept it.
+
+- **Live nudge:** the third identical failure (or the third re-run of a command with a bigger `head -n`) adds one short note after the tool result so the model changes approach, and shows a toast. `liveHints: false` turns the note off.
+- **Proposals:** each has the evidence, what it wasted (measured), what it costs to carry, and the net. A rule that costs more than it saves is dimmed and says so.
+- **Delivery:** *just in time* shows the rule once per session when a matching call runs again. *Always on* writes it to `CLAUDE.local.md` between markers. Both ask first, and **Undo** lasts until your next turn.
+- **Active:** accepted rules, how often they fired, and whether the failure came back.
+- **Loops:** this session's loops, the note the model was given verbatim, and waste per session.
+- **Memory:** lines in your `CLAUDE.md` files that look stale (a path that no longer exists), never triggered, or in use, with what each costs per turn. Remove keeps a copy so you can undo.
+- **Polish wording** is the only thing that calls a model, and asks first. It sends the rule and its evidence, nothing else.
+
+`/lessons` opens the pane; `/lessons accept <id> [always]` and `/lessons retire <id>` work without it.
+
 ## Desktop app
 
 The mods also draw for the desktop app. These are the design previews the desktop renderer was built from; it has not been verified in the app yet.
@@ -72,12 +88,12 @@ The mods also draw for the desktop app. These are the design previews the deskto
 
 ## Privacy
 
-Nothing is sent anywhere. The mods write debug lines (counts, ids and durations, never prompt or file content) to `claude --debug`, and keep counters in their own local store for `/cache stats` and `/ctx stats`. Set the `metrics` option to `false` to turn the counters off. The only network traffic is the keep-warm pings, which are ordinary model requests you switch on yourself.
+Nothing is sent anywhere unless you switch it on. The mods write debug lines (counts, ids and durations, never prompt or file content) to `claude --debug`, and keep counters and approved rules in their own local store. Set the `metrics` option to `false` to turn the counters off. Lessons also keeps, per project, the first word of the commands and the folders of the files it saw, so it can tell whether a `CLAUDE.md` line is used. The only model requests they make are the keep-warm pings you enable and, in Lessons, **Polish wording** after you confirm what it will send.
 
 ## Development
 
 ```
 npm install
 npm test                         # model, layout and rendering tests
-claude plugin validate ./cache-guard
+claude plugin validate ./cache-guard   # likewise context-lens, lessons
 ```

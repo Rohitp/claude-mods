@@ -200,7 +200,7 @@ function empty(v: View, iw: number): Seg[][] {
     ]
   const fired = v.active.reduce((n, a) => n + (a.st === 'ok' ? 1 : 0), 0)
   const o: Seg[][] = [[S('Nothing to learn this session.', 'fg b')], [], [S(`${v.turns} turns · ${v.failures} failures · ${v.loops.length} loops · ${v.corrections} corrections`, 'fg')], []]
-  if (v.active.length) o.push([S('● ', 'ok'), S(`${v.active.length} active rules${fired ? `, ${fired} fired` : ''}, ${v.active.some(a => a.st === 'warn') ? 'some recurred' : 'none recurred'}.`, 'fg')], [])
+  if (v.active.length) o.push([S('● ', 'ok'), S(`${v.active.length} active rule${v.active.length === 1 ? '' : 's'}${fired ? `, ${fired} fired` : ''}, ${v.active.some(a => a.st === 'warn') ? 'some recurred' : 'none recurred'}.`, 'fg')], [])
   o.push(...wrap('The band stays hidden until something is worth a rule.', iw, 'dim'))
   return o
 }

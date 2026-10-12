@@ -29,6 +29,7 @@ import {
   sanitizeRules,
   sanitizeUi,
   shouldHint,
+  tokensOf,
   track,
   turnsPerSession,
   upsertBlock,
@@ -141,7 +142,15 @@ async function buildView($: EngineInterface): Promise<View> {
   const turns = await $.session.turns()
   const perSession = Math.max(turns, turnsPerSession(history))
   const taken = new Set(rules.map(r => r.sig))
-  const props: Proposal[] = propose(entries, taken, perSession, dismissed).map(p => (override.has(p.id) ? { ...p, text: override.get(p.id) as string } : p))
+  const props: Proposal[] = propose(entries, taken, perSession, dismissed).map(p => {
+    const t = override.get(p.id)
+    if (t === undefined) return p
+    // Polished wording changes what the rule costs to carry.
+    const tokens = tokensOf(t)
+    const carryJit = tokens * Math.min(p.fires, JIT_SHOWS)
+    const carryAlways = tokens * Math.max(1, perSession)
+    return { ...p, text: t, tokens, carryJit, carryAlways, netJit: p.saved - carryJit, netAlways: p.saved - carryAlways }
+  })
   const model = await $.session.model()
   const m = ui.tab === 3 || ui.view === 'remove' ? await loadMemory($) : mem
   let failures = 0
