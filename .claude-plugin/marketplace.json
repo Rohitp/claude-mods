@@ -1,8 +1,21 @@
 {
   "name": "claude-mods",
-  "owner": { "name": "Rohit" },
+  "owner": {
+    "name": "Rohit"
+  },
   "plugins": [
-    { "name": "context-lens", "source": "./context-lens" },
-    { "name": "cache-guard", "source": "./cache-guard" }
+    {
+      "name": "context-lens",
+      "source": "./context-lens"
+    },
+    {
+      "name": "cache-guard",
+      "source": "./cache-guard"
+    },
+    {
+      "name": "lessons",
+      "source": "./lessons",
+      "description": "Catches repeated failures and re-fetch loops as they happen, nudges the model, and turns them into small priced rules you approve."
+    }
   ]
 }

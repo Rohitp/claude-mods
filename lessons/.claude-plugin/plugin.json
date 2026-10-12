@@ -1,0 +1,14 @@
+{
+  "name": "lessons",
+  "version": "0.1.0",
+  "description": "Spots repeated failures and re-fetch loops as they happen, nudges the model, and turns them into small priced rules you approve.",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "liveHints": {
+      "type": "boolean",
+      "title": "Live hints",
+      "description": "When a loop is caught, add one short note after the tool result so the model changes approach. Off leaves the model untouched.",
+      "default": true
+    }
+  }
+}

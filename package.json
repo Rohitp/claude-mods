@@ -3,7 +3,7 @@
   "private": true,
   "description": "Context Lens and Cache Guard mods for Claude Code",
   "scripts": {
-    "test": "node scripts/run-tests.cjs cache-guard/cache-guard.test.ts context-lens/context-lens.test.ts"
+    "test": "node scripts/run-tests.cjs cache-guard/cache-guard.test.ts context-lens/context-lens.test.ts lessons/lessons.test.ts"
   },
   "devDependencies": {
     "typescript": "5.6.3"
