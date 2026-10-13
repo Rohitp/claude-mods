@@ -243,7 +243,7 @@ function loopsTab(el: El, v: View, acts: Acts) {
             <Text bold color={l.live ? 'warning' : undefined}>{l.n}× · {fkd(l.wasted)}</Text>
           </Box>
           <Text dimColor>{l.kl} · {l.live ? 'live, still counting' : l.proposal ? 'became a proposal' : 'ended'}</Text>
-          {l.err !== '' && <Text dimColor wrap="truncate">{cut(l.err, 80)}</Text>}
+          {l.err !== '' && <Text dimColor wrap="truncate">last error: {cut(l.err, 72)}</Text>}
           {l.live && l.note !== '' && (
             <Box flexDirection="column" borderStyle="round" paddingX={1}>
               <Text dimColor>Added to the model's next turn · {Math.ceil(l.note.length / 4)} tokens, not saved</Text>

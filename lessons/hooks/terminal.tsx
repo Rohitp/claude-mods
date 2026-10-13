@@ -249,7 +249,7 @@ function loopsTab(v: View, iw: number): Seg[][] {
       b.push(len(long) <= iw ? long : [S(`      ${L.kl} · proposal  `, 'dim'), Bt('View', `view:${L.proposal}`)])
     } else b.push([S(`      ${L.kl} · ended`, 'dim')])
     if (open) {
-      if (L.err) b.push([S('      '), S(cut(L.err, iw - 6), 'code')])
+      if (L.err) b.push([S('      '), S('last error  ', 'dim'), S(cut(L.err, iw - 18), 'code')])
       if (L.note) {
         b.push([])
         b.push(...ind(6, wrap(`Added to the model's next turn (${Math.ceil(L.note.length / 4)} tokens, not saved):`, iw - 6, 'fg')))

@@ -100,9 +100,10 @@ export function categorize(text: string): Category {
 const errKey = (t: string) => t.replace(/\b\d+\b/g, '#').replace(/\s+/g, ' ').trim().slice(0, 160)
 const firstLine = (t: string) => (t.split('\n').find(l => l.trim()) ?? '').trim()
 /** The informative line of a failure: the engine's "Exit code 1" header says nothing by itself. */
+const BARE_EXIT = /^exit code \d+$/i
 const errorLine = (t: string) => {
   const lines = t.split('\n').map(l => l.trim()).filter(Boolean)
-  return lines.find(l => !/^exit code \d+$/i.test(l)) ?? lines[0] ?? ''
+  return lines.find(l => !BARE_EXIT.test(l)) ?? lines[0] ?? ''
 }
 
 function blank(c: Call, d: ReturnType<typeof describe>): Entry {
@@ -615,7 +616,7 @@ export function sanitizeEntries(v: unknown): Entry[] {
       errors: num(o.errors),
       sameErr: num(o.sameErr),
       lastErr: typeof o.lastErr === 'string' ? o.lastErr : '',
-      errLine: typeof o.errLine === 'string' ? o.errLine : '',
+      errLine: typeof o.errLine === 'string' && !BARE_EXIT.test(o.errLine.trim()) ? o.errLine : '',
       category: typeof o.category === 'string' ? (o.category as Category) : null,
       variants: strs(o.variants).slice(0, MAX_VARIANTS),
       paged: o.paged === true,
@@ -625,7 +626,8 @@ export function sanitizeEntries(v: unknown): Entry[] {
       corrections: num(o.corrections),
       hinted: num(o.hinted),
       note: typeof o.note === 'string' ? o.note : '',
-      ev: strs(o.ev).slice(0, MAX_EV),
+      // Evidence saved before the engine's bare "Exit code N" header was skipped.
+      ev: strs(o.ev).slice(0, MAX_EV).map(l => l.replace(/\s+→ exit code \d+$/i, '')),
       turns: Array.isArray(o.turns) ? o.turns.filter((x): x is number => typeof x === 'number').slice(0, 12) : [],
       firstAt: num(o.firstAt),
       lastAt: num(o.lastAt),

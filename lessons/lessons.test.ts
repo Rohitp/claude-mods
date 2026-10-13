@@ -373,3 +373,10 @@ test('trend svg is one well-formed document with a tooltip per dot', () => {
   expect(svg.split('<title>').length - 1).toBe(2)
   expect(svg.includes('a &amp; b')).toBe(true)
 })
+
+test('a bare exit-code line from an older session is not shown as the reason', () => {
+  const old = [{ tool: 'Bash', sig: 'bash:cat', sample: 'cat /x', errLine: 'Exit code 1', ev: ['t1  Bash  cat /x  → Exit code 1'], count: 3, errors: 3 }]
+  const e = sanitizeEntries(old)[0]!
+  expect(e.errLine).toBe('')
+  expect(e.ev[0]).toBe('t1  Bash  cat /x')
+})
