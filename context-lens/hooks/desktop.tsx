@@ -235,8 +235,20 @@ export function ctxBandDesktop(el: DesktopEl, v: View, acts: Acts) {
     return <Text dimColor>ctx — send a prompt to start measuring</Text>
   }
   const top = l.cats.filter(c => c.kind === 'used' && c.tokens > 0).sort((a, b) => b.tokens - a.tokens).slice(0, 3)
+  const offer = v.offer
   return (
-    <Box gap={2} alignItems="center">
+    <Box flexDirection="column">
+      {offer && (
+        <Box key="offer" gap={2} alignItems="center">
+          <Text bold color="yellow">Compact to free ~{fk(offer.frees)} tokens</Text>
+          <Text dimColor>
+            {offer.savesPerTurn !== null ? `~${usd(offer.savesPerTurn)} less per turn (est.)` : `${Math.round(offer.pctWindow)}% of the window (est.)`} · keeps a summary; you choose what is kept
+          </Text>
+          <Button key="compact" label="Compact now" onPress={acts.compact} />
+          <Button key="snooze" label="Not now" onPress={acts.snooze} />
+        </Box>
+      )}
+    <Box key="band" gap={2} alignItems="center">
       <Button key="open" label="Context Lens" onPress={acts.open} />
       <Svg source={miniStackSvg(l.cats)} alt={`${v.percent}% of the window used`} width={96} height={6} />
       <Text bold color={role(v)}>{v.percent}%</Text>
@@ -250,7 +262,8 @@ export function ctxBandDesktop(el: DesktopEl, v: View, acts: Acts) {
       <Text dimColor>
         {v.mode === 'api' && v.carry !== null ? `carry ~${usd(v.carry)}/turn est.` : v.mode === 'sub' && l.limitPct !== null ? `5h window ${l.limitPct}%` : ''}
       </Text>
-      {v.state !== 'normal' && <Button key="compact" label="Compact now" onPress={acts.compact} />}
+      {v.state !== 'normal' && !offer && <Button key="compact" label="Compact now" onPress={acts.compact} />}
+    </Box>
     </Box>
   )
 }

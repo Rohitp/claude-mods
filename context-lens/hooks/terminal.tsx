@@ -87,10 +87,24 @@ export function ctxBand(v: View, w: number): Seg[] {
   if (v.state === 'normal' && v.thresholdPct) items.push({ p: 9, segs: [S(`compacts at ${v.thresholdPct}%`, 'dim')] })
 
   const right: Seg[] =
-    v.state === 'normal' ? (w >= 100 ? [S('lens', 'accent', { act: 'open' })] : []) : [bracket('Compact now', 'compact')]
+    v.state === 'normal' || v.offer ? (w >= 100 ? [S('lens', 'accent', { act: 'open' })] : []) : [bracket('Compact now', 'compact')]
   const rw = right.reduce((n, s) => n + [...s.t].length, 0)
   const left = prio(items, w - rw - 2)
   return right.length ? lr(left, right, w) : left
+}
+
+/** The offer row above the band: what compacting frees, what it saves, and an easy no. */
+export function ctxOffer(v: View, w: number): Seg[] | null {
+  const o = v.offer
+  if (!o) return null
+  const right: Seg[] = [bracket('Compact now', 'compact'), S(' '), S('[ Not now ]', 'dim', { act: 'snooze' })]
+  const rw = right.reduce((n, s) => n + [...s.t].length, 0)
+  const items: Item[] = [
+    { p: 0, segs: [S(`Compact to free ~${fk(o.frees)} tokens`, 'warn b'), S(' est.', 'dim')] },
+    { p: 3, segs: [S(o.savesPerTurn !== null ? `~${usd(o.savesPerTurn)} less per turn` : `${Math.round(o.pctWindow)}% of the window`, 'fg')] },
+    { p: 5, segs: [S('keeps a summary; you choose what is kept', 'dim')] },
+  ]
+  return lr(prio(items, w - rw - 2), right, w)
 }
 
 // ---- the pane --------------------------------------------------------------------------

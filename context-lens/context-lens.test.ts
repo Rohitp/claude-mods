@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { len } from './hooks/layout'
 import { derive, whatIf } from './hooks/model'
-import { ctxBand, ctxPane } from './hooks/terminal'
+import { ctxBand, ctxOffer, ctxPane } from './hooks/terminal'
 import type { PaneState } from './hooks/terminal'
 import type { Lens, Point } from './types'
 
@@ -76,7 +76,8 @@ test('context band fits every width and never drops the percent', () => {
       const band = ctxBand(v, w)
       expect(len(band) <= w).toBe(true)
       expect(text(band).includes('%')).toBe(true)
-      if (v.state !== 'normal') expect(band.some(s => s.act === 'compact')).toBe(true)
+      if (v.state !== 'normal') expect([...band, ...(ctxOffer(v, w) ?? [])].some(s => s.act === 'compact')).toBe(true)
+      expect(len(ctxOffer(v, w) ?? []) <= w).toBe(true)
     }
   }
 })
@@ -199,4 +200,23 @@ test('stats: counters, ring bounds, repair and summary', () => {
   expect(out.includes('×1.05')).toBe(true)
   expect(sanitizeStats({ c: { a: 'x', b: 2 }, recent: [null, { t: 1, k: 'a' }] }, 9).c).toEqual({ b: 2 })
   expect(sanitizeStats(42, 9).since).toBe(9)
+})
+
+test('compact offer states what it frees and stays quiet when dismissed', () => {
+  const h = hist(300 * K, 842 * K)
+  const v = derive(lens(842 * K), h, 0, 0)
+  expect(v.offer !== null).toBe(true)
+  expect(v.offer!.frees > 100 * K).toBe(true)
+  expect(v.offer!.savesPerTurn !== null).toBe(true)
+  const t = text(ctxOffer(v, 144)!)
+  expect(t.includes('Compact to free')).toBe(true)
+  expect(t.includes('Not now')).toBe(true)
+  expect(text(ctxOffer(v, 70)!).includes('Compact now')).toBe(true)
+  expect(derive(lens(412 * K), hist(380 * K, 412 * K), 0, 0).offer).toBe(null)
+  // dismissed at 842k: quiet until the context has grown by 10%
+  expect(derive(lens(850 * K), h, 0, 0, 842 * K).offer).toBe(null)
+  expect(derive(lens(930 * K), h, 0, 0, 842 * K).offer !== null).toBe(true)
+  // subscription: tokens only, no dollars
+  const sub = derive(lens(842 * K, 'sub'), h, 0, 0)
+  expect(text(ctxOffer(sub, 144)!).includes('$')).toBe(false)
 })

@@ -11,7 +11,7 @@ import { derive, sanitizeHistory, sanitizeLens } from './model'
 import { bump, emptyStats, note, sanitizeStats, summarize } from './stats'
 import type { Stats } from './stats'
 import type { View } from './model'
-import { ctxBand, ctxPane, row } from './terminal'
+import { ctxBand, ctxOffer, ctxPane, row } from './terminal'
 import type { Acts } from './terminal'
 
 const PANE = 'context-lens'
@@ -23,6 +23,7 @@ const whatIfAtom = atom({ plugin: 'context-lens', key: 'whatIf' } as const, '')
 const openAtom = atom({ plugin: 'context-lens', key: 'open' } as const, ['mcp', 'mem', 'msg'])
 const lastTurnAtom = atom({ plugin: 'context-lens', key: 'lastTurnAt' } as const, 0)
 const nowAtom = atom({ plugin: 'context-lens', key: 'now' } as const, 0)
+const snoozeAtom = atom({ plugin: 'context-lens', key: 'snoozeAt' } as const, 0)
 
 const TABS: Tab[] = ['category', 'items', 'whatif', 'trend']
 const GROUPS = ['mcp', 'mem', 'skl', 'agt', 'msg']
@@ -169,6 +170,7 @@ async function refresh($: EngineInterface) {
       n: (prev?.n ?? 0) + 1,
     }
     if (point.isCompaction) {
+      void update($, snoozeAtom, () => 0)
       count('compaction')
       log($, 'info', 'compaction', { from: prev?.total ?? 0, to: lens.total })
     }
@@ -186,7 +188,7 @@ async function view($: EngineInterface): Promise<View> {
   }
   const h = sanitizeHistory(await read($, historyAtom))
   const now = (await read($, nowAtom)) || (await $.clock.now())
-  return derive(lens, h, now, await read($, lastTurnAtom))
+  return derive(lens, h, now, await read($, lastTurnAtom), await read($, snoozeAtom))
 }
 
 async function tickNow($: EngineInterface) {
@@ -313,13 +315,20 @@ export const register: Register = (on, options) => {
           log($, 'info', 'compact.click', { via: 'band', state: v.state })
           void $.session.compact()
         },
+        snooze: () => {
+          count('offer.snooze')
+          log($, 'info', 'offer.snooze', { total: v.lens?.total ?? 0 })
+          return update($, snoozeAtom, () => v.lens?.total ?? 0)
+        },
       }
       const below = await next(e)
       const own =
         e.surface !== 'terminal'
           ? ctxBandDesktop($.ui.resolve(e) as DesktopEl, v, acts)
           : row(el, fit(ctxBand(v, Math.max(20, e.props.bodyColumns)), Math.max(20, e.props.bodyColumns)), acts, 'band')
-      return <el.Box flexDirection="column">{below}{own}</el.Box>
+      const bw = Math.max(20, e.props.bodyColumns)
+      const offer = e.surface === 'terminal' ? ctxOffer(v, bw) : null
+      return <el.Box flexDirection="column">{below}{offer ? row(el, fit(offer, bw), acts, 'offer') : null}{own}</el.Box>
     } catch (err) {
       count('render.error')
       log($, 'error', 'render.band', { name: err instanceof Error ? err.name : 'unknown', msg: err instanceof Error ? err.message : '' })

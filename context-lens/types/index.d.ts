@@ -38,6 +38,8 @@ declare module 'claude-code' {
       /** Start of the last main-thread request, to judge whether the cache is cold. */
       lastTurnAt: number
       now: number
+      /** Context size when the compact offer was dismissed; 0 when it has not been. */
+      snoozeAt: number
     }
   }
 }

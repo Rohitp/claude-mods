@@ -31,6 +31,7 @@ Needs a Claude Code build with mod support (written against 2.1.296).
 A one-row band above the prompt and a side panel opened with `/ctx`.
 
 - **Band:** a stacked bar, percent used, the biggest categories, and what carrying the context costs each turn. From 80% it estimates the turns left before autocompact and adds a **Compact now** button.
+- **Compact offer:** from 80%, a row above the band says what compacting would free (an estimate: messages shrink to a summary), what that saves per turn on API billing, and offers **Compact now** or **Not now**. Not now keeps it quiet until the context has grown another 10%.
 - **Category:** every category with its tokens and share of the window.
 - **Items:** each memory file, MCP server, skill and agent, plus messages split by source.
 - **What-if:** an estimate of what removing a memory file or MCP server frees, and how many turns until the one-time cache rebuild pays back.

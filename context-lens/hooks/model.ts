@@ -34,6 +34,31 @@ export type WhatIf = {
   isCold: boolean
 }
 
+/** What compacting yourself would free, offered once the window is filling. Estimates. */
+export type Offer = {
+  frees: number
+  pctWindow: number
+  /** Dollars less per turn afterwards, on API billing with a known price. */
+  savesPerTurn: number | null
+}
+
+/** Messages shrink to a summary, taken as a tenth of them within 2k to 20k tokens. */
+export function offerOf(l: Lens, mode: Mode, read: number): Offer | null {
+  const messages = Math.max(0, l.total - l.overhead)
+  const summary = Math.min(20_000, Math.max(2_000, messages * 0.1))
+  const frees = Math.round(messages - summary)
+  if (frees < 5_000) return null
+  const price = priceOf(l.model)
+  return {
+    frees,
+    pctWindow: (frees / l.window) * 100,
+    savesPerTurn: price && mode === 'api' ? (frees / 1e6) * price.base * read : null,
+  }
+}
+
+/** Dismissed offers stay quiet until the context has grown by this much since. */
+export const SNOOZE_GROWTH = 1.1
+
 export type View = {
   lens: Lens | null
   state: State
@@ -48,6 +73,8 @@ export type View = {
   rewrite: number | null
   isCold: boolean
   candidates: Candidate[]
+  /** Set while the state is warn or crit and the offer is not snoozed. */
+  offer: Offer | null
 }
 
 export function growthPerTurn(h: Point[]): number | null {
@@ -58,13 +85,14 @@ export function growthPerTurn(h: Point[]): number | null {
   return Number.isFinite(g) ? g : null
 }
 
-export function derive(lens: Lens | null, h: Point[], now: number, lastTurnAt: number): View {
+/** `snoozeAt` is the context size when the offer was last dismissed, 0 for never. */
+export function derive(lens: Lens | null, h: Point[], now: number, lastTurnAt: number, snoozeAt = 0): View {
   const price = lens ? priceOf(lens.model) : null
   const mode: Mode = !lens ? 'api' : lens.billing === 'sub' ? 'sub' : price ? 'api' : 'unk'
   const read = price?.read ?? 0.1
   const isCold = lastTurnAt > 0 && now - lastTurnAt > COLD_MS
   if (!lens || lens.total <= 0) {
-    return { lens, state: 'empty', mode, percent: 0, thresholdPct: null, growth: null, turnsLeft: null, read, carry: null, rewrite: null, isCold, candidates: [] }
+    return { lens, state: 'empty', mode, percent: 0, thresholdPct: null, growth: null, turnsLeft: null, read, carry: null, rewrite: null, isCold, candidates: [], offer: null }
   }
   const percent = Math.round((lens.total / lens.window) * 100)
   const thresholdPct = lens.autoCompactAt ? Math.round((lens.autoCompactAt / lens.window) * 100) : null
@@ -80,6 +108,8 @@ export function derive(lens: Lens | null, h: Point[], now: number, lastTurnAt: n
   ]
     .filter(c => c.tokens > 0)
     .sort((a, b) => b.tokens - a.tokens)
+  const isSnoozed = snoozeAt > 0 && lens.total < snoozeAt * SNOOZE_GROWTH
+  const offer = state !== 'normal' && !isSnoozed ? offerOf(lens, mode, read) : null
   return {
     lens,
     state,
@@ -93,6 +123,7 @@ export function derive(lens: Lens | null, h: Point[], now: number, lastTurnAt: n
     rewrite: dollars(lens.total, WRITE - read),
     isCold,
     candidates,
+    offer,
   }
 }
 
