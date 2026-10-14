@@ -7,7 +7,7 @@ import { ctxBandDesktop, ctxPaneDesktop } from './desktop'
 import type { DesktopEl } from './desktop'
 import { formatLine } from './log'
 import type { Field, Level } from './log'
-import { derive, sanitizeHistory, sanitizeLens } from './model'
+import { crossesCold, derive, sanitizeHistory, sanitizeLens } from './model'
 import { bump, emptyStats, note, sanitizeStats, summarize } from './stats'
 import type { Stats } from './stats'
 import type { View } from './model'
@@ -193,7 +193,9 @@ async function view($: EngineInterface): Promise<View> {
 
 async function tickNow($: EngineInterface) {
   const now = await $.clock.now()
-  await update($, nowAtom, () => now)
+  const before = await read($, nowAtom)
+  // Writing the atom redraws the pane and band; only do it when the cold flag can change.
+  if (!before || crossesCold(before, now, await read($, lastTurnAtom))) await update($, nowAtom, () => now)
   await flush($)
 }
 

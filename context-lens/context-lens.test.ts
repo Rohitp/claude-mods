@@ -1,8 +1,9 @@
 import { expect, test } from 'claude-code/testing'
 
 import { len } from './hooks/layout'
-import { derive, whatIf } from './hooks/model'
+import { crossesCold, derive, whatIf } from './hooks/model'
 import { ctxBand, ctxOffer, ctxPane } from './hooks/terminal'
+import { stackedBarSvg, rowBarSvg } from './hooks/svg'
 import type { PaneState } from './hooks/terminal'
 import type { Lens, Point } from './types'
 
@@ -219,4 +220,19 @@ test('compact offer states what it frees and stays quiet when dismissed', () => 
   // subscription: tokens only, no dollars
   const sub = derive(lens(842 * K, 'sub'), h, 0, 0)
   expect(text(ctxOffer(sub, 144)!).includes('$')).toBe(false)
+})
+
+test('the window bar covers the window, so the largest category is not drawn full', () => {
+  const cats = [{ name: 'Messages', tokens: 400 * K, color: '', kind: 'used' as const }]
+  const svg = stackedBarSvg(cats.map(c => ({ cat: c, tip: '' })), null, 360, 16, 1000 * K)
+  const w = Number(/<rect class="s"[^>]* width="([\d.]+)"/.exec(svg)![1])
+  expect(w > 100 && w < 160).toBe(true)
+  const row = Number(/<rect width="([\d.]+)" height="6" rx="3" fill="#/.exec(rowBarSvg(0.4, '#d9784a'))![1])
+  expect(row < 84).toBe(true)
+})
+
+test('a clock tick redraws only when the cold flag flips', () => {
+  expect(crossesCold(1_000, 11_000, 500)).toBe(false)
+  expect(crossesCold(290_000, 310_000, 0)).toBe(false)
+  expect(crossesCold(290_000, 310_000, 5_000)).toBe(true)
 })

@@ -5,6 +5,11 @@ export const WRITE = 1.25
 export const WARN_PCT = 80
 export const COLD_MS = 300_000 // the default 5-minute cache TTL
 
+/** Whether a tick moves the cold flag. `now` only feeds that flag, so redrawing on every tick
+ *  made the pane flash for nothing. */
+export const crossesCold = (before: number, after: number, lastTurnAt: number): boolean =>
+  lastTurnAt > 0 && (after - lastTurnAt > COLD_MS) !== (before - lastTurnAt > COLD_MS)
+
 export type Price = { base: number; read: number }
 export function priceOf(model: string): Price | null {
   if (/fable-5|mythos/.test(model)) return { base: 10, read: 0.025 }

@@ -59,7 +59,8 @@ export function ctxPaneDesktop(el: DesktopEl, v: View, st: PaneState, acts: Acts
         <Text dimColor>{v.thresholdPct ? `autocompact at ${v.thresholdPct}%` : ''}</Text>
       </Box>
       <Svg
-        source={stackedBarSvg(segs, l.autoCompactAt ? l.autoCompactAt / l.cats.reduce((n, c) => n + (c.kind === 'deferred' ? 0 : c.tokens), 0) : null)}
+        key="window-bar"
+        source={stackedBarSvg(segs, l.autoCompactAt ? Math.min(1, l.autoCompactAt / Math.max(l.window, l.cats.reduce((n, c) => n + (c.kind === 'deferred' ? 0 : c.tokens), 0))) : null, 360, 16, l.window)}
         alt={`${fk(l.total)} of ${fk(l.window)} used (${v.percent}%): ${l.cats.filter(c => c.kind === 'used').slice(0, 4).map(c => `${c.name} ${fk(c.tokens)}`).join(', ')}`}
         isInteractive
       />
@@ -173,6 +174,7 @@ export function ctxPaneDesktop(el: DesktopEl, v: View, st: PaneState, acts: Acts
         ) : (
           <Box flexDirection="column" gap={1}>
             <Svg
+              key="trend"
               source={columnsSvg(hist, l.window, v.thresholdPct)}
               alt={`Window fill over the last ${hist.length} turns, now ${v.percent}%`}
               isInteractive
@@ -199,14 +201,13 @@ export function ctxPaneDesktop(el: DesktopEl, v: View, st: PaneState, acts: Acts
   }
 
   const rows = l.cats.filter(c => c.kind === 'used' && c.tokens > 0).sort((a, c) => c.tokens - a.tokens)
-  const mx = rows[0]?.tokens ?? 1
   return (
     <Box flexDirection="column" gap={1}>
       {summary}
       <Box flexDirection="column">
         {rows.map((c, i) => (
           <Box key={`c${i}`} gap={2} alignItems="center">
-            <Svg source={rowBarSvg(c.tokens / mx, colorOf(c.name))} alt={`${c.name} ${fk1(c.tokens)}`} width={84} height={6} />
+            <Svg key={`bar${i}`} source={rowBarSvg(c.tokens / l.window, colorOf(c.name))} alt={`${c.name} ${fk1(c.tokens)}`} width={84} height={6} />
             <Box width={20}><Text>{c.name}</Text></Box>
             <Box width={9} justifyContent="flex-end"><Text>{fk1(c.tokens)}</Text></Box>
             <Text dimColor>{((c.tokens / l.window) * 100).toFixed(1)}%</Text>
@@ -250,7 +251,7 @@ export function ctxBandDesktop(el: DesktopEl, v: View, acts: Acts) {
       )}
     <Box key="band" gap={2} alignItems="center">
       <Button key="open" label="Context Lens" onPress={acts.open} />
-      <Svg source={miniStackSvg(l.cats)} alt={`${v.percent}% of the window used`} width={96} height={6} />
+      <Svg key="mini" source={miniStackSvg(l.cats)} alt={`${v.percent}% of the window used`} width={96} height={6} />
       <Text bold color={role(v)}>{v.percent}%</Text>
       <Text dimColor wrap="truncate">
         {v.state === 'crit'

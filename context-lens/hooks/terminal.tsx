@@ -168,12 +168,11 @@ function paneLines(v: View, st: PaneState, iw: number): Seg[][] {
 
   if (st.tab === 'category') {
     const rows = l.cats.filter(c => c.kind === 'used' && c.tokens > 0).sort((a, c) => c.tokens - a.tokens)
-    const mx = rows[0]?.tokens ?? 1
     const nW = Math.max(12, Math.min(24, iw - 4 - 8 - 7 - 1 - 10))
     const bw = iw - 4 - nW - 8 - 7 - 1
     rows.forEach((c, i) => {
       const row: Seg[] = [S(' ■ ', 'fg', { c: colorOf(c.name) }), S(padR(clip(short(c.name), nW), nW), i === 0 ? 'fg b' : 'fg'), S(padL(fk1(c.tokens), 8), 'fg'), S(padL(`${((c.tokens / l.window) * 100).toFixed(1)}%`, 7), 'dim')]
-      if (bw >= 6) row.push(S(' '), { ...S(hbar(c.tokens / mx, bw), 'fg'), c: colorOf(c.name) })
+      if (bw >= 6) row.push(S(' '), { ...S(hbar(c.tokens / l.window, bw), 'fg'), c: colorOf(c.name) })
       b.push(row)
     })
     for (const c of l.cats.filter(c => c.kind === 'free' || c.kind === 'buffer')) {

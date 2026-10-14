@@ -36,20 +36,21 @@ export type BarSeg = { cat: Cat; tip: string }
 const CSS =
   '<style>.s{transition:opacity .12s}.b:hover .s{opacity:.4}.b .s:hover{opacity:1;stroke:#777;stroke-width:2}</style>'
 const HATCH =
-  '<pattern id="h" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">' +
+  '<pattern id="clh" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">' +
   '<rect width="6" height="6" fill="rgba(128,128,128,0.10)"/><rect width="2" height="6" fill="rgba(128,128,128,0.35)"/></pattern>'
 
 /** The stacked window bar: used categories in colour, free hatched, buffer grey, a tick at the
  *  compaction threshold. */
-export function stackedBarSvg(segs: BarSeg[], thresholdFrac: number | null, w = 360, h = 16): string {
-  const sum = segs.reduce((n, s) => n + Math.max(0, s.cat.tokens), 0)
+export function stackedBarSvg(segs: BarSeg[], thresholdFrac: number | null, w = 360, h = 16, windowTokens = 0): string {
+  // The bar is the whole window, so a breakdown that leaves out free space still shows it.
+  const sum = Math.max(windowTokens, segs.reduce((n, s) => n + (s.cat.kind === 'deferred' ? 0 : Math.max(0, s.cat.tokens)), 0))
   if (sum <= 0) return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"/>`
   let x = 0
   const rects = segs
     .filter(s => s.cat.tokens > 0 && s.cat.kind !== 'deferred')
     .map(s => {
       const width = (s.cat.tokens / sum) * w
-      const fill = s.cat.kind === 'free' ? 'url(#h)' : s.cat.kind === 'buffer' ? PALETTE.buffer : colorOf(s.cat.name)
+      const fill = s.cat.kind === 'free' ? 'url(#clh)' : s.cat.kind === 'buffer' ? PALETTE.buffer : colorOf(s.cat.name)
       const r = `<rect class="s" x="${x.toFixed(2)}" y="0" width="${Math.max(0.5, width - 1).toFixed(2)}" height="${h}" rx="3" fill="${fill}"><title>${esc(s.tip)}</title></rect>`
       x += width
       return r
@@ -79,7 +80,7 @@ export function miniStackSvg(cats: Cat[], w = 96, h = 6): string {
       return r
     })
     .join('')
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"><clipPath id="c"><rect width="${w}" height="${h}" rx="${h / 2}"/></clipPath><g clip-path="url(#c)">${rects}</g></svg>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"><clipPath id="clc"><rect width="${w}" height="${h}" rx="${h / 2}"/></clipPath><g clip-path="url(#clc)">${rects}</g></svg>`
 }
 
 /** One horizontal bar for a category row. */
