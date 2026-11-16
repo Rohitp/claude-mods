@@ -28,16 +28,15 @@ Needs a Claude Code build with mod support (written against 2.1.296).
 
 ## Context Lens
 
-A one-row band above the prompt and a side panel opened with `/ctx`.
+Says what is filling the context at the moment it happens, and stays quiet otherwise. `/ctx` opens the full panel.
 
-- **Band:** a stacked bar, percent used, the biggest categories, and what carrying the context costs each turn. From 80% it estimates the turns left before autocompact and adds a **Compact now** button.
-- **Compact offer:** from 80%, a row above the band says what compacting would free (an estimate: messages shrink to a summary), what that saves per turn on API billing, and offers **Compact now** or **Not now**. Not now keeps it quiet until the context has grown another 10%.
-- **Category:** every category with its tokens and share of the window.
-- **Items:** each memory file, MCP server, skill and agent, plus messages split by source.
-- **What-if:** an estimate of what removing a memory file or MCP server frees, and how many turns until the one-time cache rebuild pays back.
-- **Trend:** window fill per turn, growth rate and turns to autocompact.
+- **Under a tool call:** a result of 10k tokens or more gets a line under its row, such as `+42k context · 4.2% of window`. Grouped reads and searches get one line, summed.
+- **Cards in the conversation:** the first time the context passes 80%, then 90%, then when autocompact is next, a card says how many turns are left and what compacting would free (an estimate: messages shrink to a summary), with **Compact now** and **Not now**. Each level gets one card; after a compaction they start again.
+- **Working line:** from 70%, the line that animates during a turn adds the fill, such as `· 84% context`.
+- **Band:** a stacked bar, percent used and the biggest categories. By default it shows only from 80%, with **Compact now**. `/ctx band on` keeps it up, `/ctx band off` turns it off, `/ctx band auto` goes back to the default; its × also turns it off.
+- **Panel (`/ctx`):** every category with its tokens and share of the window; each memory file, MCP server, skill and agent, plus messages split by source; what removing a memory file or MCP server would free and how many turns until the one-time cache rebuild pays back; and window fill per turn with the growth rate.
 
-`/ctx band` toggles the band. To open the pane in every session, set the `openOnStart` option to `widget` (its small form on the desktop app) or `pane`; in the terminal it opens only where it fits as a sidebar.
+ To open the pane in every session, set the `openOnStart` option to `widget` (its small form on the desktop app) or `pane`; in the terminal it opens only where it fits as a sidebar.
 
 ![What-if tab](docs/images/terminal-what-if.png)
 

@@ -23,12 +23,31 @@ export type Lens = {
 }
 export type Point = { total: number; overhead: number; isCompaction: boolean; /** Turn number, counted from the first measurement. */ n: number }
 export type Tab = 'category' | 'items' | 'whatif' | 'trend'
+/** When the band above the prompt shows: only when there is something to do, always, or never. */
+export type BandMode = 'auto' | 'on' | 'off'
+/** A card placed in the transcript when the context crossed a level, with the numbers of that moment. */
+export type Card = {
+  id: string
+  /** 1 at 80%, 2 at 90%, 3 when autocompact is next. */
+  level: number
+  percent: number
+  total: number
+  turnsLeft: number | null
+  frees: number
+  savesPerTurn: number | null
+  status: 'open' | 'snoozed' | 'compacted'
+}
 
 declare module 'claude-code' {
   interface PluginState {
     'context-lens': {
       lens: Lens | null
-      isBandOn: boolean
+      band: BandMode
+      /** Tool results big enough to note under their row: tool_use_id → estimated tokens. */
+      bigResults: Record<string, number>
+      cards: Card[]
+      /** The highest level a card was placed for since the last compaction. */
+      cardLevel: number
       tab: Tab
       history: Point[]
       /** Label of the item the What-if tab is about; '' means the largest. */

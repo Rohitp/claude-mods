@@ -1,5 +1,5 @@
 // Pure model: prices, formulas and the view both surfaces draw from.
-import type { Lens, Named, Point } from '../types'
+import type { BandMode, Card, Lens, Named, Point } from '../types'
 
 export const WRITE = 1.25
 export const WARN_PCT = 80
@@ -172,3 +172,70 @@ export function sanitizeHistory(x: unknown): Point[] {
   // Points from an earlier version carry no turn number; number them by position.
   return ok.map((p, i) => ({ ...p, isCompaction: !!p.isCompaction, n: isNum(p.n) ? p.n : i + 1 }))
 }
+
+// ---- in-the-moment surfaces -------------------------------------------------------------
+
+/** A tool result this big gets a line under its row. */
+export const BIG_RESULT = 10_000
+/** From this fill the working line says how full the context is. */
+export const SPINNER_PCT = 70
+
+/** 1 past 80%, 2 past 90%, 3 when autocompact is next; 0 below. */
+export function levelOf(v: View): number {
+  if (v.state === 'empty' || !v.lens) return 0
+  if (v.state === 'crit') return 3
+  if (v.percent >= 90) return 2
+  if (v.percent >= WARN_PCT) return 1
+  return 0
+}
+
+/** The card for a newly crossed level, or null when nothing new was crossed. */
+export function cardFor(v: View, placedLevel: number, id: string): Card | null {
+  const level = levelOf(v)
+  if (level <= placedLevel || !v.lens) return null
+  const o = offerOf(v.lens, v.mode, v.read)
+  return {
+    id,
+    level,
+    percent: v.percent,
+    total: v.lens.total,
+    turnsLeft: v.turnsLeft,
+    frees: o?.frees ?? 0,
+    savesPerTurn: o?.savesPerTurn ?? null,
+    status: 'open',
+  }
+}
+
+export function cardTitle(c: Card): string {
+  if (c.level >= 3) return `Autocompacts next turn · context at ${c.percent}%`
+  const left = c.turnsLeft !== null ? ` · ~${Math.max(1, Math.round(c.turnsLeft))} turns to autocompact` : ''
+  return `Context at ${c.percent}%${left}`
+}
+
+export function cardBody(c: Card, usdOf: (n: number) => string): string {
+  const saves = c.savesPerTurn !== null ? `, about ${usdOf(c.savesPerTurn)} less per turn (est.)` : ''
+  return `Compacting now, at a point you choose, keeps a summary and frees about ${fkShort(c.frees)}${saves}.`
+}
+
+/** What a card says once it is no longer asking. */
+export function cardAfter(c: Card): string {
+  if (c.status === 'compacted') return 'Compacted since.'
+  if (c.level >= 3) return 'Not now. Autocompact will run when it needs to.'
+  return `Not now. You'll hear again at ${c.level === 1 ? '90%' : 'autocompact'}.`
+}
+
+export function shouldShowBand(mode: BandMode, v: View): boolean {
+  return mode === 'on' || (mode === 'auto' && (v.state === 'warn' || v.state === 'crit'))
+}
+
+/** Added to the working line's ellipsis from SPINNER_PCT up; null below it. */
+export function spinnerNote(v: View): string | null {
+  return v.lens && v.state !== 'empty' && v.percent >= SPINNER_PCT ? ` · ${v.percent}% context` : null
+}
+
+/** The line under a tool row whose result was big. */
+export function resultNote(tokens: number, window: number, results = 1): string {
+  return `+${fkShort(tokens)} context${results > 1 ? ` from ${results} results` : ''} · ${((tokens / window) * 100).toFixed(1)}% of window`
+}
+
+const fkShort = (t: number): string => (t >= 1e6 ? `${Number((t / 1e6).toFixed(1))}M` : t >= 1e4 ? `${Math.round(t / 1e3)}k` : `${(t / 1e3).toFixed(1)}k`)

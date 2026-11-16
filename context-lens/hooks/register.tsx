@@ -1,22 +1,27 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Cat, Lens, Named, Point, Server, Tab } from '../types'
+import type { BandMode, Card, Cat, Lens, Named, Point, Server, Tab } from '../types'
 import { fit } from './layout'
 import { ctxBandDesktop, ctxPaneDesktop } from './desktop'
 import type { DesktopEl } from './desktop'
 import { formatLine } from './log'
 import type { Field, Level } from './log'
-import { crossesCold, derive, sanitizeHistory, sanitizeLens } from './model'
+import { BIG_RESULT, cardFor, crossesCold, derive, sanitizeHistory, sanitizeLens, shouldShowBand, spinnerNote } from './model'
+import { ctxCard, withResultNote } from './card'
+import type { CardEl } from './card'
 import { bump, emptyStats, note, sanitizeStats, summarize } from './stats'
 import type { Stats } from './stats'
 import type { View } from './model'
-import { ctxBand, ctxOffer, ctxPane, row } from './terminal'
+import { ctxBand, ctxPane, row } from './terminal'
 import type { Acts } from './terminal'
 
 const PANE = 'context-lens'
 const lensAtom = atom({ plugin: 'context-lens', key: 'lens' } as const, null)
-const bandAtom = atom({ plugin: 'context-lens', key: 'isBandOn' } as const, true)
+const bandAtom = atom({ plugin: 'context-lens', key: 'band' } as const, 'auto' as BandMode)
+const bigAtom = atom({ plugin: 'context-lens', key: 'bigResults' } as const, {} as Record<string, number>)
+const cardsAtom = atom({ plugin: 'context-lens', key: 'cards' } as const, [] as Card[])
+const cardLevelAtom = atom({ plugin: 'context-lens', key: 'cardLevel' } as const, 0)
 const tabAtom = atom({ plugin: 'context-lens', key: 'tab' } as const, 'category')
 const historyAtom = atom({ plugin: 'context-lens', key: 'history' } as const, [])
 const whatIfAtom = atom({ plugin: 'context-lens', key: 'whatIf' } as const, '')
@@ -71,6 +76,7 @@ async function messageSources($: EngineInterface, target: number): Promise<{ lis
   const rows = await $.session.messages()
   const toolOf = new Map<string, string>()
   const sums = new Map<string, number>()
+  const perResult: [string, number][] = []
   const add = (k: string, chars: number) => sums.set(k, (sums.get(k) ?? 0) + chars)
   const label = (tool: string): string => {
     const m = /^mcp__(.+?)__/.exec(tool)
@@ -82,7 +88,10 @@ async function messageSources($: EngineInterface, target: number): Promise<{ lis
       toolOf.set(u.tool_use_id, label(u.tool))
       add('Tool-call inputs', JSON.stringify(u.input ?? {}).length)
     }
-    for (const r of m.toolResults ?? []) add(toolOf.get(r.tool_use_id) ?? 'Other results', r.text.length)
+    for (const r of m.toolResults ?? []) {
+      add(toolOf.get(r.tool_use_id) ?? 'Other results', r.text.length)
+      perResult.push([r.tool_use_id, r.text.length])
+    }
   }
   const all = [...sums.entries()].map(([k, chars]) => ({ k, est: Math.ceil(chars / 4) }))
   const sum = all.reduce((a, x) => a + x.est, 0)
@@ -91,8 +100,16 @@ async function messageSources($: EngineInterface, target: number): Promise<{ lis
     .map(x => ({ label: x.k, tokens: Math.round(x.est * scale) }))
     .filter(x => x.tokens > 0)
     .sort((a, b) => b.tokens - a.tokens)
+  bigResults = {}
+  for (const [id, chars] of perResult) {
+    const tokens = Math.round(Math.ceil(chars / 4) * scale)
+    if (tokens >= BIG_RESULT) bigResults[id] = tokens
+  }
   return { list, scale: target > 0 && sum > 0 ? target / sum : 0 }
 }
+
+// Big tool results found by the last measure, written to state by refresh.
+let bigResults: Record<string, number> = {}
 
 async function measure($: EngineInterface): Promise<Lens | null> {
   const usage = await $.session.usage({ breakdown: 'summary' })
@@ -160,6 +177,10 @@ async function refresh($: EngineInterface) {
   count('measure.ms', ms)
   log($, 'debug', 'measure', { total: lens.total, window: lens.window, model: lens.model, billing: lens.billing, ms })
   await update($, lensAtom, () => lens)
+  const big = bigResults
+  // Results keep their ids across turns; the newest 200 are plenty for what is on screen.
+  await update($, bigAtom, old => Object.fromEntries(Object.entries({ ...(old ?? {}), ...big }).slice(-200)))
+  let compacted = false
   await update($, historyAtom, (old: unknown) => {
     const h = sanitizeHistory(old)
     const prev = h[h.length - 1]
@@ -170,12 +191,35 @@ async function refresh($: EngineInterface) {
       n: (prev?.n ?? 0) + 1,
     }
     if (point.isCompaction) {
+      compacted = true
       void update($, snoozeAtom, () => 0)
       count('compaction')
       log($, 'info', 'compaction', { from: prev?.total ?? 0, to: lens.total })
     }
     return [...h, point].slice(-60)
   })
+  if (compacted) {
+    await update($, cardLevelAtom, () => 0)
+    await update($, cardsAtom, cs => (cs ?? []).map(c => (c.status === 'open' ? { ...c, status: 'compacted' as const } : c)))
+  }
+}
+
+/** Places a card in the transcript the first time the context crosses each level. */
+async function placeCard($: EngineInterface) {
+  const v = await view($)
+  const placed = await read($, cardLevelAtom)
+  const cards = await read($, cardsAtom)
+  const card = cardFor(v, placed, `ctx-${cards.length + 1}`)
+  if (!card) return
+  await update($, cardLevelAtom, () => card.level)
+  await update($, cardsAtom, cs => [...(cs ?? []), card].slice(-20))
+  try {
+    await $.ui.place({ id: card.id })
+    count(`card.${card.level}`)
+    log($, 'info', 'card.place', { level: card.level, percent: card.percent })
+  } catch (err) {
+    log($, 'error', 'card.place', { name: err instanceof Error ? err.name : 'unknown' })
+  }
 }
 
 async function view($: EngineInterface): Promise<View> {
@@ -250,19 +294,29 @@ export const register: Register = (on, options) => {
       await flush($, true)
       return { text: 'Context Lens metrics reset.' }
     }
-    if (e.args.trim() === 'band') {
-      const isOn = !(await read($, bandAtom))
-      await update($, bandAtom, () => isOn)
-      return { text: isOn ? 'Context band on.' : 'Context band off.' }
+    const bandArg = /^band(?:\s+(on|off|auto))?$/.exec(e.args.trim())
+    if (bandArg) {
+      const now = await read($, bandAtom)
+      const mode: BandMode = (bandArg[1] as BandMode | undefined) ?? (now === 'on' ? 'auto' : 'on')
+      await update($, bandAtom, () => mode)
+      return {
+        text:
+          mode === 'on' ? 'Context band always on. `/ctx band auto` shows it only near autocompact.'
+          : mode === 'off' ? 'Context band off. `/ctx band auto` brings it back near autocompact.'
+          : 'Context band shows only near autocompact. `/ctx band on` keeps it up.',
+      }
     }
     await refresh($)
     await $.ui.open({ id: PANE, title: 'Context Lens' })
-    return { text: 'Context Lens opened. `/ctx band` toggles the one-line band.' }
+    return { text: 'Context Lens opened. `/ctx band on|off|auto` sets when the one-line band shows.' }
   })
 
   // After every turn. The summary breakdown is a local estimate and costs no request.
   on('session.measure', async ($, e, next) => {
-    if (e.changed.includes('context')) await refresh($)
+    if (e.changed.includes('context')) {
+      await refresh($)
+      await placeCard($)
+    }
     return next(e)
   })
 
@@ -327,10 +381,11 @@ export const register: Register = (on, options) => {
   // Drawn below whatever the plugins beneath draw (the cache band), because the engine shows
   // one tree per site.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.props.hasSurvey || !(await read($, bandAtom))) return next(e)
+    if (e.props.hasSurvey) return next(e)
     try {
       const el = $.ui.resolve(e)
       const v = await view($)
+      if (!shouldShowBand(await read($, bandAtom), v)) return next(e)
       const acts: Acts = {
         open: () => void $.ui.open({ id: PANE, title: 'Context Lens' }),
         compact: () => {
@@ -345,8 +400,8 @@ export const register: Register = (on, options) => {
         },
         hide: async () => {
           count('band.hide')
-          await update($, bandAtom, () => false)
-          $.ui.toast('Context band hidden. /ctx band brings it back.')
+          await update($, bandAtom, () => 'off' as const)
+          $.ui.toast('Context band off. /ctx band auto brings it back near autocompact.')
         },
       }
       const below = await next(e)
@@ -354,13 +409,75 @@ export const register: Register = (on, options) => {
         e.surface !== 'terminal'
           ? ctxBandDesktop($.ui.resolve(e) as DesktopEl, v, acts)
           : row(el, fit(ctxBand(v, Math.max(20, e.props.bodyColumns)), Math.max(20, e.props.bodyColumns)), acts, 'band')
-      const bw = Math.max(20, e.props.bodyColumns)
-      const offer = e.surface === 'terminal' ? ctxOffer(v, bw) : null
-      return <el.Box flexDirection="column">{below}{offer ? row(el, fit(offer, bw), acts, 'offer') : null}{own}</el.Box>
+      return <el.Box flexDirection="column">{below}{own}</el.Box>
     } catch (err) {
       count('render.error')
       log($, 'error', 'render.band', { name: err instanceof Error ? err.name : 'unknown', msg: err instanceof Error ? err.message : '' })
       return next(e)
     }
+  })
+
+  // The card placed when the context crossed a level. Only the newest card still asks.
+  on('ui.render', { component: 'Placed' }, async ($, e, next) => {
+    if (e.props.plugin !== PLUGIN) return next(e)
+    const el = $.ui.resolve(e)
+    try {
+      const cards = await read($, cardsAtom)
+      const c = cards.find(x => x.id === e.props.id)
+      if (!c) return next(e)
+      const isLive = c.id === cards[cards.length - 1]?.id
+      const v = await view($)
+      const acts: Acts = {
+        compact: () => {
+          count('compact.click')
+          log($, 'info', 'compact.click', { via: 'card', level: c.level })
+          void $.session.compact()
+        },
+        snooze: async () => {
+          count('card.snooze')
+          await update($, cardsAtom, cs => (cs ?? []).map(x => (x.id === c.id ? { ...x, status: 'snoozed' as const } : x)))
+          await update($, snoozeAtom, () => v.lens?.total ?? c.total)
+        },
+      }
+      return ctxCard(el as CardEl, c, isLive, acts)
+    } catch (err) {
+      count('render.error')
+      log($, 'error', 'render.card', { name: err instanceof Error ? err.name : 'unknown' })
+      return next(e)
+    }
+  })
+
+  // How full the context is, on the working line, once it matters.
+  on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
+    try {
+      const note = spinnerNote(await view($))
+      if (!note) return next(e)
+      return next({ ...e, props: { ...e.props, suffix: `${e.props.suffix}${note}` } })
+    } catch {
+      return next(e)
+    }
+  })
+
+  // Reads, searches and listings fold into one group line; the note goes under it, summed.
+  on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
+    if (e.props.isExpanded) return next(e)
+    const big = await read($, bigAtom)
+    const hits = e.props.calls.map(c => (c.tool_use_id ? big[c.tool_use_id] ?? 0 : 0)).filter(t => t > 0)
+    if (hits.length === 0) return next(e)
+    const lens = sanitizeLens(await read($, lensAtom))
+    const row = await next(e)
+    if (!lens) return row
+    return withResultNote($.ui.resolve(e) as CardEl, row, hits.reduce((a, b) => a + b, 0), lens.window, hits.length)
+  })
+
+  // What a big tool result added, under its row.
+  on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
+    const big = await read($, bigAtom)
+    const tokens = big[e.props.tool_use_id]
+    if (!tokens || e.props.isRunning) return next(e)
+    const lens = sanitizeLens(await read($, lensAtom))
+    const row = await next(e)
+    if (!lens) return row
+    return withResultNote($.ui.resolve(e) as CardEl, row, tokens, lens.window)
   })
 }

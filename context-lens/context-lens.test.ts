@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { len } from './hooks/layout'
 import { crossesCold, derive, whatIf } from './hooks/model'
-import { ctxBand, ctxOffer, ctxPane } from './hooks/terminal'
+import { ctxBand, ctxPane } from './hooks/terminal'
 import { stackedBarSvg, rowBarSvg } from './hooks/svg'
 import type { PaneState } from './hooks/terminal'
 import type { Lens, Point } from './types'
@@ -77,8 +77,7 @@ test('context band fits every width and never drops the percent', () => {
       const band = ctxBand(v, w)
       expect(len(band) <= w).toBe(true)
       expect(text(band).includes('%')).toBe(true)
-      if (v.state !== 'normal') expect([...band, ...(ctxOffer(v, w) ?? [])].some(s => s.act === 'compact')).toBe(true)
-      expect(len(ctxOffer(v, w) ?? []) <= w).toBe(true)
+      if (v.state !== 'normal') expect(band.some(s => s.act === 'compact')).toBe(true)
     }
   }
 })
@@ -264,17 +263,56 @@ test('compact offer states what it frees and stays quiet when dismissed', () => 
   expect(v.offer !== null).toBe(true)
   expect(v.offer!.frees > 100 * K).toBe(true)
   expect(v.offer!.savesPerTurn !== null).toBe(true)
-  const t = text(ctxOffer(v, 144)!)
-  expect(t.includes('Compact to free')).toBe(true)
-  expect(t.includes('Not now')).toBe(true)
-  expect(text(ctxOffer(v, 70)!).includes('Compact now')).toBe(true)
   expect(derive(lens(412 * K), hist(380 * K, 412 * K), 0, 0).offer).toBe(null)
   // dismissed at 842k: quiet until the context has grown by 10%
   expect(derive(lens(850 * K), h, 0, 0, 842 * K).offer).toBe(null)
   expect(derive(lens(930 * K), h, 0, 0, 842 * K).offer !== null).toBe(true)
-  // subscription: tokens only, no dollars
-  const sub = derive(lens(842 * K, 'sub'), h, 0, 0)
-  expect(text(ctxOffer(sub, 144)!).includes('$')).toBe(false)
+})
+
+// ---- in-the-moment flow -----------------------------------------------------------------
+import { cardFor, levelOf, resultNote, shouldShowBand, spinnerNote } from './hooks/model'
+import { ctxCard } from './hooks/card'
+
+test('a card is placed once per level crossed: 80%, 90%, then autocompact', () => {
+  const h = hist(300 * K, 842 * K)
+  const at = (t: number) => derive(lens(t), hist(300 * K, t), 0, 0)
+  expect(levelOf(at(412 * K))).toBe(0)
+  expect(cardFor(at(412 * K), 0, 'c1')).toBe(null)
+  const c1 = cardFor(at(842 * K), 0, 'c1')!
+  expect(c1.level).toBe(1)
+  expect(cardFor(at(850 * K), 1, 'c2')).toBe(null)
+  expect(cardFor(derive(lens(905 * K), hist(880 * K, 905 * K), 0, 0), 1, 'c2')!.level).toBe(2)
+  expect(cardFor(derive(lens(925 * K), h, 0, 0), 2, 'c3')!.level).toBe(3)
+  expect(c1.frees > 100 * K).toBe(true)
+})
+
+test('the card asks while it is the newest and open, then says what happened', () => {
+  const c = cardFor(derive(lens(842 * K), hist(300 * K, 842 * K), 0, 0), 0, 'c1')!
+  const live = flat(ctxCard(el, c, true, acts) as Node)
+  expect(live.includes('Compact now')).toBe(true)
+  expect(live.includes('Not now')).toBe(true)
+  expect(live.includes('frees about')).toBe(true)
+  expect(flat(ctxCard(el, { ...c, status: 'snoozed' }, true, acts) as Node).includes("hear again at 90%")).toBe(true)
+  expect(flat(ctxCard(el, { ...c, status: 'compacted' }, false, acts) as Node).includes('Compacted since')).toBe(true)
+  expect(flat(ctxCard(el, c, false, acts) as Node).includes('Compact now')).toBe(false)
+  const sub = cardFor(derive(lens(842 * K, 'sub'), hist(300 * K, 842 * K), 0, 0), 0, 'c1')!
+  expect(flat(ctxCard(el, sub, true, acts) as Node).includes('$')).toBe(false)
+})
+
+test('the band shows in auto mode only when there is something to do', () => {
+  const calm = derive(lens(412 * K), hist(380 * K, 412 * K), 0, 0)
+  const hot = derive(lens(842 * K), hist(300 * K, 842 * K), 0, 0)
+  expect(shouldShowBand('auto', calm)).toBe(false)
+  expect(shouldShowBand('auto', hot)).toBe(true)
+  expect(shouldShowBand('on', calm)).toBe(true)
+  expect(shouldShowBand('off', hot)).toBe(false)
+})
+
+test('the working line names the fill from 70%, and big results get a line', () => {
+  expect(spinnerNote(derive(lens(412 * K), hist(380 * K, 412 * K), 0, 0))).toBe(null)
+  expect(spinnerNote(derive(lens(760 * K), hist(700 * K, 760 * K), 0, 0))).toBe(' · 76% context')
+  expect(resultNote(38_400, 1000 * K)).toBe('+38k context · 3.8% of window')
+  expect(resultNote(52_000, 1000 * K, 2)).toBe('+52k context from 2 results · 5.2% of window')
 })
 
 test('the window bar covers the window, so the largest category is not drawn full', () => {
