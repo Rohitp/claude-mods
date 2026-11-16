@@ -11,6 +11,7 @@ export const PALETTE = {
   skills: '#78ab58',
   agents: '#a96bc4',
   messages: '#d9784a',
+  messagesSoft: 'rgba(217,120,74,0.35)',
   buffer: '#9a9a9a',
   warn: '#d08f12',
   ink: '#8a8a8a',
@@ -102,40 +103,26 @@ export function trendTopPct(points: Point[], window: number): number {
   return STEPS.find(s => s >= peak * 1.2) ?? 100
 }
 
-/** The trend: one stacked column per turn (overhead under messages), scaled to `trendTopPct`,
- *  a dashed line at the compaction threshold when it is on the scale, and a triangle where a
- *  compaction happened. Columns keep a column's shape however few turns there are. */
-export function columnsSvg(points: Point[], window: number, thresholdPct: number | null, w = 360, h = 170): string {
-  const n = Math.max(1, points.length)
-  const pad = 14
-  const top = (trendTopPct(points, window) / 100) * window
-  const cw = Math.min(28, (w - pad) / n)
-  const y = (tokens: number) => h - 8 - Math.min(1, tokens / top) * (h - 24)
-  const cols = points
+
+/** The panel's growth sparkline: the last `n` turns as columns scaled to the fullest of them,
+ *  the newest in the messages color, each with a tooltip. */
+export function sparkSvg(points: Point[], n = 12, w = 220, h = 32): string {
+  const pts = points.slice(-n)
+  const peak = Math.max(1, ...pts.map(p => p.total))
+  const gap = 3
+  const cw = Math.min(18, (w - gap * (pts.length - 1)) / Math.max(1, pts.length))
+  const cols = pts
     .map((p, i) => {
-      const x = pad + i * cw
-      const ov = y(p.overhead)
-      const tot = y(p.total)
-      const pct = Math.round((p.total / window) * 100)
-      const tip = `Turn ${i + 1} · ${Math.round(p.total / 1000)}k (${pct}%)\nOverhead ${Math.round(p.overhead / 1000)}k${p.isCompaction ? '\nCompacted' : ''}`
-      return (
-        `<g class="s"><title>${esc(tip)}</title>` +
-        `<rect x="${x.toFixed(1)}" y="${tot.toFixed(1)}" width="${Math.max(1, cw - 1.5).toFixed(1)}" height="${Math.max(0, ov - tot).toFixed(1)}" fill="${PALETTE.messages}"/>` +
-        `<rect x="${x.toFixed(1)}" y="${ov.toFixed(1)}" width="${Math.max(1, cw - 1.5).toFixed(1)}" height="${Math.max(0, h - 8 - ov).toFixed(1)}" fill="${PALETTE.mcp}"/>` +
-        (p.isCompaction ? `<path d="M${(x + cw / 2).toFixed(1)} ${h - 2} l-4 7 h8 z" fill="${PALETTE.ink}"/>` : '') +
-        `</g>`
-      )
+      const ch = Math.max(2, (p.total / peak) * h)
+      const x = i * (cw + gap)
+      const fill = i === pts.length - 1 ? PALETTE.messages : PALETTE.messagesSoft
+      const tip = `Turn ${p.n} · ${Math.round(p.total / 1000)}k${p.isCompaction ? ' · compacted' : ''}`
+      return `<rect class="s" x="${x.toFixed(1)}" y="${(h - ch).toFixed(1)}" width="${cw.toFixed(1)}" height="${ch.toFixed(1)}" rx="2" fill="${fill}"><title>${esc(tip)}</title></rect>`
     })
     .join('')
-  const thr = thresholdPct !== null ? (thresholdPct / 100) * window : null
-  const line =
-    thr !== null && thr <= top
-      ? `<line x1="${pad}" x2="${w}" y1="${y(thr).toFixed(1)}" y2="${y(thr).toFixed(1)}" stroke="${PALETTE.warn}" stroke-width="1.5" stroke-dasharray="5 4"/>`
-      : ''
-  const grid = `<line x1="${pad}" x2="${w}" y1="16" y2="16" stroke="rgba(128,128,128,0.25)"/>`
-  const axis = `<line x1="${pad}" x2="${w}" y1="${h - 8}" y2="${h - 8}" stroke="rgba(128,128,128,0.5)"/>`
-  return (
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h + 6}" width="${w}" height="${h + 6}">` +
-    `<style>.s:hover{opacity:.7}</style>${grid}${axis}${line}${cols}</svg>`
-  )
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">${CSS}${cols}</svg>`
 }
+
+/** A small square color key. */
+export const swatchSvg = (color: string, size = 8): string =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}"><rect width="${size}" height="${size}" rx="2" fill="${color}"/></svg>`

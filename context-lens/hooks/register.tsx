@@ -285,6 +285,12 @@ export const register: Register = (on, options) => {
           log($, 'info', 'compact.click', { via: 'pane', state: v.state })
           void $.session.compact()
         },
+        snooze: () => {
+          count('offer.snooze')
+          log($, 'info', 'offer.snooze', { via: 'pane', total: v.lens?.total ?? 0 })
+          return update($, snoozeAtom, () => v.lens?.total ?? 0)
+        },
+        keep: () => update($, whatIfAtom, () => ''),
       }
       for (const t of TABS) {
         acts[`tab:${t}`] = () => {
@@ -308,7 +314,7 @@ export const register: Register = (on, options) => {
         whatIf: await read($, whatIfAtom),
         history: sanitizeHistory(await read($, historyAtom)),
       }
-      if (e.surface !== 'terminal') return ctxPaneDesktop($.ui.resolve(e) as DesktopEl, v, st, acts)
+      if (e.surface !== 'terminal') return ctxPaneDesktop($.ui.resolve(e) as DesktopEl, v, st, acts, e.props.placement)
       const lines = ctxPane(v, st, Math.max(20, e.props.bodyColumns))
       return <el.Box flexDirection="column">{lines.map((l, i) => row(el, l, acts, `r${i}`))}</el.Box>
     } catch (err) {

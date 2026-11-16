@@ -121,7 +121,7 @@ test('trend marks a compaction and reports growth', () => {
 
 // ---- desktop trees ---------------------------------------------------------------------
 import { ctxBandDesktop, ctxPaneDesktop } from './hooks/desktop'
-import { columnsSvg, miniStackSvg, rowBarSvg, stackedBarSvg } from './hooks/svg'
+import { miniStackSvg, rowBarSvg, sparkSvg, stackedBarSvg } from './hooks/svg'
 
 type Node = { tag: string; props: Record<string, unknown>; kids: unknown[] } | string | number | false | null | undefined
 const el = { Box: 'Box', Text: 'Text', Button: 'Button', Svg: 'Svg' } as never
@@ -134,16 +134,59 @@ const flat = (n: Node | Node[]): string => {
 }
 const acts = new Proxy({} as Record<string, () => void>, { get: () => () => {} })
 
-test('desktop pane renders every tab in every billing mode without dollars when it should not', () => {
+test('desktop pane renders in every billing mode, with and without a what-if, without dollars when it should not', () => {
   const h = hist(300 * K, 842 * K)
   for (const l of [lens(842 * K), lens(842 * K, 'sub'), lens(842 * K, 'api', 'some-new-model')]) {
     const v = derive(l, h, 0, 0)
-    for (const tab of ['category', 'items', 'whatif', 'trend'] as const) {
-      const out = flat(ctxPaneDesktop(el, v, { tab, open: ['mcp', 'mem', 'msg'], whatIf: '', history: h }, acts) as Node)
-      expect(out.length > 20).toBe(true)
+    for (const whatIf of ['', 'mcp:github']) {
+      const out = flat(ctxPaneDesktop(el, v, { tab: 'category', open: [], whatIf, history: h }, acts) as Node)
+      expect(out.includes("WHAT'S USING IT")).toBe(true)
       if (v.mode !== 'api') expect(out.includes('$')).toBe(false)
     }
   }
+})
+
+test('desktop pane: one list, no tabs, and a group opens to its items', () => {
+  const h = hist(300 * K, 412 * K)
+  const v = derive(lens(412 * K), h, 0, 0)
+  const closed = flat(ctxPaneDesktop(el, v, st('category', h), acts) as Node)
+  expect(closed.includes('What-if')).toBe(false)
+  expect(closed.includes('Trend')).toBe(false)
+  expect(closed.includes('MCP tools')).toBe(true)
+  const shut = flat(ctxPaneDesktop(el, v, { ...st('category', h), open: [] }, acts) as Node)
+  expect(shut.includes('github')).toBe(false)
+  expect(closed.includes('github')).toBe(true)
+  expect(closed.includes('/ turn')).toBe(true)
+})
+
+test('desktop pane: near autocompact it leads with what compacting frees', () => {
+  const h = hist(300 * K, 842 * K)
+  const out = flat(ctxPaneDesktop(el, derive(lens(842 * K), h, 0, 0), st('category', h), acts) as Node)
+  expect(out.includes('frees about')).toBe(true)
+  expect(out.includes('Not now')).toBe(true)
+  expect(out.indexOf('frees about') < out.indexOf("WHAT'S USING IT")).toBe(true)
+  const calm = flat(ctxPaneDesktop(el, derive(lens(412 * K), h, 0, 0), st('category', h), acts) as Node)
+  expect(calm.includes('Not now')).toBe(false)
+})
+
+test('desktop pane: the what-if opens inside its row and its group, and says what is left', () => {
+  const h = hist(300 * K, 412 * K)
+  const v = derive(lens(412 * K), h, 0, 0)
+  const out = flat(ctxPaneDesktop(el, v, { tab: 'category', open: [], whatIf: 'mcp:github', history: h }, acts) as Node)
+  expect(out.includes('without it')).toBe(true)
+  expect(out.includes('Pays back')).toBe(true)
+  expect(out.includes('Keep it')).toBe(true)
+  expect(out.indexOf('github') < out.indexOf('Pays back')).toBe(true)
+  expect(out.indexOf('Pays back') < out.indexOf('linear')).toBe(true)
+})
+
+test('desktop widget is the short form', () => {
+  const h = hist(300 * K, 412 * K)
+  const out = flat(ctxPaneDesktop(el, derive(lens(412 * K), h, 0, 0), st('category', h), acts, 'widget') as Node)
+  expect(out.includes('41%')).toBe(true)
+  expect(out.includes("WHAT'S USING IT")).toBe(false)
+  const hot = flat(ctxPaneDesktop(el, derive(lens(842 * K), h, 0, 0), st('category', h), acts, 'widget') as Node)
+  expect(hot.includes('Compact now')).toBe(true)
 })
 
 test('desktop band shows the alert action only when it matters', () => {
@@ -159,7 +202,7 @@ test('svg builders emit one well-formed document each', () => {
     stackedBarSvg(l.cats.map(c => ({ cat: c, tip: `${c.name} & <x>` })), 0.92),
     miniStackSvg(l.cats),
     rowBarSvg(0.4, '#2fa392'),
-    columnsSvg(hist(100 * K, 400 * K), 1000 * K, 92),
+    sparkSvg(hist(100 * K, 400 * K)),
   ]
   for (const d of docs) {
     expect(d.startsWith('<svg')).toBe(true)
@@ -246,21 +289,6 @@ test('trend scale tops out just above the fullest turn', () => {
   expect(trendTopPct(low(), 1000 * K)).toBe(5)
   expect(trendTopPct(hist(300 * K, 400 * K), 1000 * K)).toBe(50)
   expect(trendTopPct(hist(700 * K, 850 * K), 1000 * K)).toBe(100)
-})
-
-test('trend columns are tall and narrow at low fill, with autocompact off the scale', () => {
-  const svg = columnsSvg(low(), 1000 * K, 92)
-  const heights = [...svg.matchAll(/<rect [^>]*height="([\d.]+)"/g)].map(m => Number(m[1]))
-  const widths = [...svg.matchAll(/<rect [^>]*width="([\d.]+)"/g)].map(m => Number(m[1]))
-  expect(Math.max(...heights) > 50).toBe(true)
-  expect(Math.max(...widths) < 30).toBe(true)
-  expect(svg.includes('stroke-dasharray')).toBe(false)
-})
-
-test('the autocompact line sits at its percent, not on the axis', () => {
-  const svg = columnsSvg(hist(700 * K, 850 * K), 1000 * K, 92)
-  const y = Number(/<line [^>]*y1="([\d.]+)"[^>]*stroke-dasharray/.exec(svg)![1])
-  expect(Math.abs(y - (170 - 8 - 0.92 * 146)) < 0.5).toBe(true)
 })
 
 test('terminal trend scales rows to the data and points up to autocompact when it is off scale', () => {

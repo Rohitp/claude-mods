@@ -2,27 +2,21 @@
 import type { Elements } from 'claude-code'
 
 import { fk, fk1 } from './layout'
-import { WRITE, usd, whatIf } from './model'
+import { usd, whatIf } from './model'
 import type { View } from './model'
-import { PALETTE, colorOf, columnsSvg, miniStackSvg, rowBarSvg, stackedBarSvg, trendTopPct } from './svg'
+import { colorOf, miniStackSvg, sparkSvg, stackedBarSvg, swatchSvg } from './svg'
 import type { PaneState } from './terminal'
 import type { Acts } from './terminal'
 
 export type DesktopEl = Pick<Elements['desktop'], 'Box' | 'Text' | 'Button' | 'Svg'>
 
-const TABS = [
-  { id: 'category', label: 'Category' },
-  { id: 'items', label: 'Items' },
-  { id: 'whatif', label: 'What-if' },
-  { id: 'trend', label: 'Trend' },
-] as const
 const role = (v: View): string | undefined => (v.state === 'crit' ? 'error' : v.state === 'warn' ? 'warning' : undefined)
-const modeLabel = (v: View): string => (v.mode === 'api' ? 'API billing · est.' : v.mode === 'sub' ? 'Subscription' : 'Prices unknown')
+const modeLabel = (v: View): string => (v.mode === 'api' ? 'API billing · est.' : v.mode === 'sub' ? 'Subscription · tokens' : 'Prices unknown · tokens')
 
 function carryText(v: View): string {
   const l = v.lens!
   if (v.mode === 'api' && v.carry !== null) return `Carrying ${fk(l.total)} costs ~${usd(v.carry)}/turn est.`
-  if (v.mode === 'sub') return `Carrying ${fk(l.total)} re-reads at ${v.read}x every turn${l.limitPct !== null ? ` · 5h window ${l.limitPct}%` : ''}`
+  if (v.mode === 'sub') return `Each turn re-reads ${fk(l.total)}${l.limitPct !== null ? ` · 5h window ${l.limitPct}%` : ''}`
   return `Carrying ${fk(l.total)} re-reads at ${v.read}x every turn · prices unknown for this model`
 }
 
@@ -36,202 +30,267 @@ function tipFor(v: View, name: string, tokens: number): string {
   return `${name}\n${fk1(tokens)} tokens · ${pct}% of window\n${carry}`
 }
 
-export function ctxPaneDesktop(el: DesktopEl, v: View, st: PaneState, acts: Acts) {
+/** Where a category's items come from, and the key its row opens under. */
+const GROUP_OF: Record<string, string> = { Messages: 'msg', 'MCP tools': 'mcp', 'Memory files': 'mem', Skills: 'skl', 'Custom agents': 'agt', Agents: 'agt' }
+
+type Kid = { label: string; meta?: string; tokens: number; wi?: string }
+
+function kidsOf(v: View, g: string): Kid[] {
+  const l = v.lens!
+  if (g === 'msg') return l.sources.map(s => ({ label: s.label, tokens: s.tokens }))
+  if (g === 'mcp') return l.servers.map(s => ({ label: s.label, meta: `${s.tools} tools${s.deferred > 0 ? ` · ${s.deferred} on demand` : ''}`, tokens: s.tokens, wi: s.tokens > 0 ? `mcp:${s.label}` : undefined }))
+  if (g === 'mem') return l.memory.map(m => ({ label: m.label, tokens: m.tokens, wi: `Memory file:${m.label}` }))
+  if (g === 'skl') return l.skills.slice(0, 12).map(s => ({ label: s.label, tokens: s.tokens }))
+  if (g === 'agt') return l.agents.map(s => ({ label: s.label, tokens: s.tokens }))
+  return []
+}
+
+const countOf = (v: View, g: string): string => {
+  const l = v.lens!
+  if (g === 'mcp') return `${l.servers.length} ${l.servers.length === 1 ? 'server' : 'servers'}`
+  if (g === 'mem') return `${l.memory.length} ${l.memory.length === 1 ? 'file' : 'files'}`
+  if (g === 'skl') return String(l.skills.length)
+  if (g === 'agt') return String(l.agents.length)
+  return ''
+}
+
+const pctOf = (tokens: number, window: number): string => `${((tokens / window) * 100).toFixed(1)}%`
+
+/** How far off autocompact is, in turns when growth is known, else in tokens. */
+function headroom(v: View): { main: string; sub: string } {
+  const l = v.lens!
+  const at = v.thresholdPct !== null ? `autocompact at ${v.thresholdPct}%` : 'no autocompact'
+  if (v.state === 'crit') return { main: 'next turn', sub: at }
+  if (v.turnsLeft !== null) return { main: `~${Math.max(1, Math.round(v.turnsLeft))} turns left`, sub: `before ${at}` }
+  if (l.autoCompactAt) return { main: `${fk(Math.max(0, l.autoCompactAt - l.total))} free`, sub: at }
+  return { main: '', sub: at }
+}
+
+/** The near-autocompact block: what compacting now frees, with Compact now and Not now. */
+function pressure(el: DesktopEl, v: View, acts: Acts) {
+  const { Box, Text, Button } = el
+  const o = v.offer
+  if (!o) return null
+  const title =
+    v.state === 'crit'
+      ? 'Autocompacts next turn'
+      : v.turnsLeft !== null
+        ? `Autocompacts in about ${Math.max(1, Math.round(v.turnsLeft))} turns`
+        : `Past ${v.percent >= 90 ? 90 : 80}% of the window`
+  const saves = o.savesPerTurn !== null ? ` That is ~${usd(o.savesPerTurn)} less per turn (est.).` : ''
+  return (
+    <Box key="pressure" flexDirection="column" gap={1} borderStyle="round" borderColor="warning" paddingX={2} paddingY={1}>
+      <Text weight="semibold" color="warning">{title}</Text>
+      <Text>
+        Compacting now, at a point you choose, keeps a summary and frees about <Text weight="semibold">{fk(o.frees)}</Text>.{saves}
+      </Text>
+      <Box gap={1}>
+        <Button key="p-compact" label="Compact now" variant="primary" onPress={acts.compact!} />
+        <Button key="p-snooze" label="Not now" variant="secondary" onPress={acts.snooze!} />
+      </Box>
+    </Box>
+  )
+}
+
+/** The small form the desktop app shows for a minimized pane. */
+function widget(el: DesktopEl, v: View, acts: Acts) {
+  const { Box, Text, Button, Svg } = el
+  const l = v.lens!
+  const room = headroom(v)
+  const top = l.cats.filter(c => c.kind === 'used' && c.tokens > 0).sort((a, b) => b.tokens - a.tokens).slice(0, 2)
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Box alignItems="center" gap={1}>
+        <Text size="heading" weight="semibold" color={role(v)}>{v.percent}%</Text>
+        <Text dimColor>{fk(l.total)} of {fk(l.window)}</Text>
+        <Box flexGrow={1} />
+        <Text weight="medium" color={role(v)}>{room.main}</Text>
+      </Box>
+      <Svg key="w-bar" source={windowBar(v)} alt={barAlt(v)} />
+      {v.offer ? (
+        <Box alignItems="center" gap={1}>
+          <Text color="warning" wrap="truncate-end">Compacting frees ~{fk(v.offer.frees)}</Text>
+          <Box flexGrow={1} />
+          <Button key="w-compact" label="Compact now" variant="primary" onPress={acts.compact!} />
+        </Box>
+      ) : (
+        <Box alignItems="center" gap={2}>
+          {top.map(c => (
+            <Box key={`w-${c.name}`} alignItems="center" gap={1}>
+              <Svg key={`w-sw-${c.name}`} source={swatchSvg(colorOf(c.name))} alt="" width={8} height={8} />
+              <Text size="footnote">{c.name} {fk(c.tokens)}</Text>
+            </Box>
+          ))}
+          {v.growth !== null && <Text size="footnote" dimColor>+{fk(Math.max(0, v.growth))}/turn</Text>}
+        </Box>
+      )}
+    </Box>
+  )
+}
+
+const barSegs = (v: View) => v.lens!.cats.map(c => ({ cat: c, tip: tipFor(v, c.name, c.tokens) }))
+function windowBar(v: View): string {
+  const l = v.lens!
+  const fill = l.cats.reduce((n, c) => n + (c.kind === 'deferred' ? 0 : c.tokens), 0)
+  return stackedBarSvg(barSegs(v), l.autoCompactAt ? Math.min(1, l.autoCompactAt / Math.max(l.window, fill)) : null, 320, 10, l.window)
+}
+const barAlt = (v: View): string => {
+  const l = v.lens!
+  return `${fk(l.total)} of ${fk(l.window)} used (${v.percent}%): ${l.cats.filter(c => c.kind === 'used').slice(0, 4).map(c => `${c.name} ${fk(c.tokens)}`).join(', ')}`
+}
+
+export function ctxPaneDesktop(el: DesktopEl, v: View, st: PaneState, acts: Acts, placement?: string) {
   const { Box, Text, Button, Svg } = el
   const l = v.lens
   if (!l || v.state === 'empty') {
     return (
       <Box flexDirection="column" gap={1}>
-        <Text bold>No turns yet.</Text>
-        <Text dimColor>Send a prompt to start measuring. Categories, items and the trend fill in after the first response.</Text>
+        <Text weight="semibold">No turns yet</Text>
+        <Text dimColor>Send a prompt to start measuring. What fills the window shows up after the first response.</Text>
       </Box>
     )
   }
+  if (placement === 'widget') return widget(el, v, acts)
 
-  const segs = l.cats.map(c => ({ cat: c, tip: tipFor(v, c.name, c.tokens) }))
+  const room = headroom(v)
+  const sel = st.whatIf ? v.candidates.find(c => c.key === st.whatIf) ?? null : null
+  const w = sel ? whatIf(v, sel) : null
+  const hist = st.history
+
   const summary = (
-    <Box flexDirection="column" gap={1}>
-      <Box justifyContent="space-between">
-        <Text>
-          <Text bold>{fk(l.total)}</Text> <Text dimColor>of {fk(l.window)} ·</Text>{' '}
-          <Text bold color={role(v)}>{v.percent}%</Text>
-        </Text>
-        <Text dimColor>{v.thresholdPct ? `autocompact at ${v.thresholdPct}%` : ''}</Text>
+    <Box key="summary" flexDirection="column" gap={1}>
+      <Box alignItems="flex-end" gap={1}>
+        <Text size="title" weight="semibold" color={role(v)}>{v.percent}%</Text>
+        <Text dimColor>{fk(l.total)} of {fk(l.window)}</Text>
+        <Box flexGrow={1} />
+        <Box flexDirection="column" alignItems="flex-end">
+          {w ? (
+            <Text weight="medium" color="success">→ {Math.round(((l.total - w.frees) / l.window) * 100)}% without it</Text>
+          ) : (
+            <Text weight="medium" color={role(v)}>{room.main}</Text>
+          )}
+          <Text size="caption" dimColor>{room.sub}</Text>
+        </Box>
       </Box>
-      <Svg
-        key="window-bar"
-        source={stackedBarSvg(segs, l.autoCompactAt ? Math.min(1, l.autoCompactAt / Math.max(l.window, l.cats.reduce((n, c) => n + (c.kind === 'deferred' ? 0 : c.tokens), 0))) : null, 360, 16, l.window)}
-        alt={`${fk(l.total)} of ${fk(l.window)} used (${v.percent}%): ${l.cats.filter(c => c.kind === 'used').slice(0, 4).map(c => `${c.name} ${fk(c.tokens)}`).join(', ')}`}
-        isInteractive
-      />
-      {v.state !== 'normal' && (
-        <Box flexDirection="column" borderStyle="round" paddingX={1}>
-          <Text color={role(v)} bold>
-            {v.state === 'crit'
-              ? 'Autocompacts next turn'
-              : `${v.turnsLeft !== null ? `About ${Math.max(1, Math.round(v.turnsLeft))} turns until autocompact` : 'Past 80% of the window'}`}
-          </Text>
-          <Text dimColor>Compacting yourself lets you choose what is kept.</Text>
-          <Button key="compact" label="Compact now" onPress={acts.compact} />
+      <Svg key="window-bar" source={windowBar(v)} alt={barAlt(v)} isInteractive />
+      {hist.length >= 2 && (
+        <Box alignItems="flex-end" gap={2}>
+          <Svg key="spark" source={sparkSvg(hist)} alt={`Window fill over the last ${Math.min(12, hist.length)} turns`} isInteractive />
+          <Box flexGrow={1} />
+          <Box flexDirection="column" alignItems="flex-end">
+            <Text weight="medium">{v.growth !== null ? `+${fk(Math.max(0, v.growth))} / turn` : `${hist.length} turns`}</Text>
+            <Text size="caption" dimColor>{v.growth !== null ? `last ${Math.min(10, hist.length - 1)} turns` : 'growth after 4 turns'}</Text>
+          </Box>
         </Box>
       )}
-      <Box>
-        {TABS.map(t => (
-          <Button key={`t-${t.id}`} label={t.id === st.tab ? `[ ${t.label} ]` : t.label} onPress={acts[`tab:${t.id}`]} />
-        ))}
-      </Box>
     </Box>
   )
 
-  if (st.tab === 'items') {
-    const isOpen = (k: string) => st.open.includes(k)
-    const sum = (a: { tokens: number }[]) => a.reduce((n, x) => n + x.tokens, 0)
-    const group = (k: string, name: string, meta: string, tokens: number, kids: { label: string; meta?: string; tokens: number; wi?: string }[]) => (
-      <Box key={k} flexDirection="column">
-        <Box justifyContent="space-between">
-          <Button key={`g-${k}`} label={`${isOpen(k) ? '▾' : '▸'} ${name}${meta ? ` · ${meta}` : ''}`} onPress={acts[`grp:${k}`]} />
-          <Text>{fk1(tokens)}</Text>
-        </Box>
-        {isOpen(k) &&
-          kids.map((c, i) => (
-            <Box key={`${k}.${i}`} justifyContent="space-between" paddingLeft={2}>
-              <Text>{c.label} <Text dimColor>{c.meta ?? ''}</Text></Text>
-              <Box gap={2}>
-                {c.wi && <Button key={`wi-${k}.${i}`} label="What-if" onPress={acts[`wi:${c.wi}`]} />}
-                <Text>{fk1(c.tokens)}</Text>
-              </Box>
-            </Box>
-          ))}
-      </Box>
-    )
-    const msg = sum(l.sources)
-    return (
-      <Box flexDirection="column" gap={1}>
-        {summary}
-        {group('mcp', 'MCP tools', `${l.servers.length} servers`, sum(l.servers), l.servers.map(s => ({ label: s.label, meta: `${s.tools} tools${s.deferred > 0 ? ` · ${s.deferred} on demand` : ''}`, tokens: s.tokens, wi: s.tokens > 0 ? `mcp:${s.label}` : undefined })))}
-        {group('mem', 'Memory files', `${l.memory.length} files`, sum(l.memory), l.memory.map(m => ({ label: m.label, tokens: m.tokens, wi: `Memory file:${m.label}` })))}
-        {group('skl', 'Skills', String(l.skills.length), sum(l.skills), l.skills.slice(0, 8).map(s => ({ label: s.label, tokens: s.tokens })))}
-        {group('agt', 'Agents', String(l.agents.length), sum(l.agents), l.agents.map(s => ({ label: s.label, tokens: s.tokens })))}
-        {group('msg', 'Messages by source', '', msg, l.sources.map(s => ({ label: s.label, meta: `${Math.round((s.tokens / Math.max(1, msg)) * 100)}%`, tokens: s.tokens })))}
-      </Box>
-    )
-  }
-
-  if (st.tab === 'whatif') {
-    const cands = v.candidates
-    if (cands.length === 0) {
-      return (
-        <Box flexDirection="column" gap={1}>
-          {summary}
-          <Text dimColor>Nothing removable found.</Text>
-        </Box>
-      )
-    }
-    const sel = cands.find(c => c.key === st.whatIf) ?? cands[0]!
-    const w = whatIf(v, sel)!
-    const card = (label: string, value: string, good = false) => (
-      <Box key={label} flexDirection="column" borderStyle="round" paddingX={1} minWidth={22}>
-        <Text dimColor>{label}</Text>
-        <Text bold color={good ? 'success' : undefined}>{value}</Text>
+  const whatIfCard = (key: string) => {
+    if (!sel || !w || sel.key !== key) return null
+    const isMcp = sel.kind === 'MCP server'
+    const stat = (label: string, value: string, note: string, good = false) => (
+      <Box key={`s-${label}`} flexDirection="column" flexGrow={1}>
+        <Text size="caption" dimColor>{label}</Text>
+        <Text weight="semibold" color={good ? 'success' : undefined}>{value}</Text>
+        <Text size="caption" dimColor>{note}</Text>
       </Box>
     )
     return (
-      <Box flexDirection="column" gap={1}>
-        {summary}
-        <Text bold>If you removed</Text>
-        <Box flexWrap="wrap">
-          {cands.slice(0, 8).map(c => (
-            <Button key={`c-${c.key}`} label={c.key === sel.key ? `[ ${c.label} ]` : c.label} onPress={acts[`wi:${c.key}`]} />
-          ))}
-        </Box>
-        <Box flexWrap="wrap" gap={1}>
-          {card('Frees', `${fk1(w.frees)} · ${w.pctWindow.toFixed(1)}% of window`)}
-          {card('Saves per turn', w.savesPerTurn !== null ? `~${usd(w.savesPerTurn)} est.` : `${fk1(w.frees)} fewer cached tokens read`)}
-          {card(
-            'One-time rebuild',
-            w.isCold ? 'nothing extra' : w.rebuild !== null ? `+${usd(w.rebuild)} est.` : `${fk(l.total - sel.tokens)} at ${WRITE}x`,
-            w.isCold,
-          )}
-          {card('Pays back after', w.isCold ? 'immediately' : `~${w.turns} turns est.`, w.isCold)}
+      <Box key={`wi-${key}`} flexDirection="column" gap={1} borderStyle="round" borderColor="success" paddingX={2} paddingY={1}>
+        <Box gap={2}>
+          {stat('Frees', fk1(w.frees), w.savesPerTurn !== null ? `~${usd(w.savesPerTurn)} / turn est.` : 'every turn')}
+          {stat('One-time cost', w.isCold ? 'nothing' : w.rebuild !== null ? `+${usd(w.rebuild)}` : fk(l.total - sel.tokens), w.isCold ? 'cache is cold' : 'cache rebuild', w.isCold)}
+          {stat('Pays back', w.isCold ? 'now' : `~${w.turns} turns`, 'est.', w.isCold)}
         </Box>
         <Text dimColor>
           {w.isCold
-            ? `The cache looks cold, so the next turn rebuilds the prefix anyway. Removing ${sel.label} now costs nothing extra.`
-            : `The cache is warm, so removing ${sel.label} now forces a one-time rebuild. It's cheapest when the cache is cold or at the start of a session.`}{' '}
-          To remove it, disable it in /mcp or your memory settings; this view only estimates.
+            ? `The cache is cold, so removing ${sel.label} now costs nothing extra.`
+            : `Removing ${sel.label} now forces a one-time rebuild. It's cheapest at the start of a session, when the cache is cold.`}{' '}
+          {isMcp ? 'Turn it off in /mcp.' : 'Edit or remove the file to drop it.'} This panel never removes anything itself.
         </Text>
+        <Box>
+          <Button key="wi-keep" label="Keep it" variant="secondary" onPress={acts.keep!} />
+        </Box>
       </Box>
     )
   }
 
-  if (st.tab === 'trend') {
-    const hist = st.history
-    const top = trendTopPct(hist, l.window)
+  const rows = l.cats.filter(c => c.kind === 'used' && c.tokens > 0).sort((a, b) => b.tokens - a.tokens)
+  const selGroup = sel ? (sel.kind === 'MCP server' ? 'mcp' : 'mem') : null
+  const list = rows.map(c => {
+    const g = GROUP_OF[c.name]
+    const kids = g ? kidsOf(v, g) : []
+    const isOpen = !!g && kids.length > 0 && (st.open.includes(g) || selGroup === g)
+    const meta = g ? countOf(v, g) : ''
     return (
-      <Box flexDirection="column" gap={1}>
-        {summary}
-        {hist.length < 2 ? (
-          <Text dimColor>Not enough turns yet.</Text>
-        ) : (
-          <Box flexDirection="column" gap={1}>
-            <Svg
-              key="trend"
-              source={columnsSvg(hist, l.window, v.thresholdPct)}
-              alt={`Window fill over the last ${hist.length} turns, now ${v.percent}%`}
-              isInteractive
-            />
-            <Box gap={1} alignItems="center" flexWrap="wrap">
-              <Svg key="swm" source={rowBarSvg(1, PALETTE.messages, 8, 8)} alt="" width={8} height={8} />
-              <Text dimColor>messages</Text>
-              <Svg key="swo" source={rowBarSvg(1, PALETTE.mcp, 8, 8)} alt="" width={8} height={8} />
-              <Text dimColor>overhead {fk(l.overhead)}</Text>
-              <Text dimColor>
-                · top line {top}% of window ·{' '}
-                {(v.thresholdPct ?? 92) <= top ? `- - ${v.thresholdPct ?? 92}% autocompact` : `autocompact at ${v.thresholdPct ?? 92}%, off this scale`}
-                {hist.some(p => p.isCompaction) ? ` · ▲ compacted at turn ${hist.find(p => p.isCompaction)!.n}` : ''}
-              </Text>
-            </Box>
-            {v.growth !== null && (
-              <Text>
-                <Text bold>+{fk(Math.max(0, v.growth))}/turn</Text> <Text dimColor>average, last {Math.min(10, hist.length - 1)} turns</Text>
-                {v.turnsLeft !== null && (
-                  <Text>
-                    {' · '}
-                    <Text bold color={role(v)}>{v.turnsLeft < 1 ? 'autocompacts next turn' : `~${Math.round(v.turnsLeft)} turns to autocompact (est.)`}</Text>
-                  </Text>
-                )}
-              </Text>
-            )}
+      <Box key={`row-${c.name}`} flexDirection="column">
+        <Box alignItems="center" gap={1}>
+          <Svg key={`sw-${c.name}`} source={swatchSvg(colorOf(c.name))} alt="" width={8} height={8} />
+          {g && kids.length > 0 ? (
+            <Button key={`g-${c.name}`} plain label={`${c.name} ${isOpen ? '▾' : '▸'}`} onPress={acts[`grp:${g}`]!} />
+          ) : (
+            <Text>{c.name}</Text>
+          )}
+          {meta && <Text size="caption" dimColor>{meta}</Text>}
+          <Box flexGrow={1} />
+          <Text mono tabular>{fk(c.tokens)}</Text>
+          <Box width={6} justifyContent="flex-end"><Text size="footnote" dimColor tabular>{pctOf(c.tokens, l.window)}</Text></Box>
+        </Box>
+        {isOpen && (
+          <Box flexDirection="column" paddingLeft={3}>
+            {kids.map((k, i) => (
+              <Box key={`k-${g}-${i}`} flexDirection="column">
+                <Box alignItems="center" gap={1}>
+                  {k.wi && acts[`wi:${k.wi}`] ? (
+                    <Button key={`kb-${g}-${i}`} plain label={k.label} onPress={acts[`wi:${k.wi}`]!} />
+                  ) : (
+                    <Text>{k.label}</Text>
+                  )}
+                  {k.meta && <Text size="caption" dimColor>{k.meta}</Text>}
+                  <Box flexGrow={1} />
+                  <Text mono tabular dimColor>{fk(k.tokens)}</Text>
+                  <Box width={6} justifyContent="flex-end"><Text size="footnote" dimColor tabular>{pctOf(k.tokens, l.window)}</Text></Box>
+                </Box>
+                {k.wi && whatIfCard(k.wi)}
+              </Box>
+            ))}
           </Box>
         )}
       </Box>
     )
-  }
+  })
 
-  const rows = l.cats.filter(c => c.kind === 'used' && c.tokens > 0).sort((a, c) => c.tokens - a.tokens)
+  const free = l.cats.find(c => c.kind === 'free')
+  const buffer = l.cats.find(c => c.kind === 'buffer')
+  const deferred = l.cats.filter(c => c.kind === 'deferred' && c.tokens > 0)
+  const top = v.candidates[0]
   return (
-    <Box flexDirection="column" gap={1}>
+    <Box flexDirection="column" gap={2}>
+      <Text size="caption" dimColor>{modeLabel(v)}</Text>
+      {pressure(el, v, acts)}
       {summary}
-      <Box flexDirection="column">
-        {rows.map((c, i) => (
-          <Box key={`c${i}`} gap={2} alignItems="center">
-            <Svg key={`bar${i}`} source={rowBarSvg(c.tokens / l.window, colorOf(c.name))} alt={`${c.name} ${fk1(c.tokens)}`} width={84} height={6} />
-            <Box width={20}><Text>{c.name}</Text></Box>
-            <Box width={9} justifyContent="flex-end"><Text>{fk1(c.tokens)}</Text></Box>
-            <Text dimColor>{((c.tokens / l.window) * 100).toFixed(1)}%</Text>
-          </Box>
-        ))}
-        {l.cats
-          .filter(c => c.kind === 'free' || c.kind === 'buffer')
-          .map((c, i) => (
-            <Box key={`f${i}`} gap={2}>
-              <Box width={84}><Text dimColor> </Text></Box>
-              <Box width={20}><Text dimColor>{c.name}</Text></Box>
-              <Box width={9} justifyContent="flex-end"><Text dimColor>{fk1(c.tokens)}</Text></Box>
-            </Box>
-          ))}
+      <Box flexDirection="column" gap={1}>
+        <Box alignItems="center">
+          <Text size="caption" weight="semibold" dimColor>WHAT'S USING IT</Text>
+          <Box flexGrow={1} />
+          {!sel && top && <Button key="drop" plain label="What can I drop?" onPress={acts[`wi:${top.key}`]!} />}
+        </Box>
+        {list}
+        <Text size="caption" dimColor>
+          {[free ? `Free ${fk(free.tokens)}` : '', buffer ? `autocompact buffer ${fk(buffer.tokens)}` : ''].filter(Boolean).join(' · ')}
+        </Text>
+        {deferred.length > 0 && (
+          <Text size="caption" dimColor>
+            Loaded only when used: {deferred.map(c => `${fk(c.tokens)} ${c.name.replace(/ \(deferred\)$/, '')}`).join(' · ')}
+          </Text>
+        )}
       </Box>
-      <Text dimColor>{carryText(v)}</Text>
+      <Box alignItems="center" gap={1}>
+        <Text dimColor>{carryText(v)}</Text>
+        <Box flexGrow={1} />
+        {!v.offer && <Button key="compact" label="Compact now" variant="secondary" onPress={acts.compact!} />}
+      </Box>
     </Box>
   )
 }
@@ -253,12 +312,12 @@ export function ctxBandDesktop(el: DesktopEl, v: View, acts: Acts) {
           <Text dimColor>
             {offer.savesPerTurn !== null ? `~${usd(offer.savesPerTurn)} less per turn (est.)` : `${Math.round(offer.pctWindow)}% of the window (est.)`} · keeps a summary; you choose what is kept
           </Text>
-          <Button key="compact" label="Compact now" onPress={acts.compact} />
-          <Button key="snooze" label="Not now" onPress={acts.snooze} />
+          <Button key="compact" label="Compact now" onPress={acts.compact!} />
+          <Button key="snooze" label="Not now" onPress={acts.snooze!} />
         </Box>
       )}
     <Box key="band" gap={2} alignItems="center">
-      <Button key="open" label="Context Lens" onPress={acts.open} />
+      <Button key="open" label="Context Lens" onPress={acts.open!} />
       <Svg key="mini" source={miniStackSvg(l.cats)} alt={`${v.percent}% of the window used`} width={96} height={6} />
       <Text bold color={role(v)}>{v.percent}%</Text>
       <Text dimColor wrap="truncate">
@@ -271,7 +330,7 @@ export function ctxBandDesktop(el: DesktopEl, v: View, acts: Acts) {
       <Text dimColor>
         {v.mode === 'api' && v.carry !== null ? `carry ~${usd(v.carry)}/turn est.` : v.mode === 'sub' && l.limitPct !== null ? `5h window ${l.limitPct}%` : ''}
       </Text>
-      {v.state !== 'normal' && !offer && <Button key="compact" label="Compact now" onPress={acts.compact} />}
+      {v.state !== 'normal' && !offer && <Button key="compact" label="Compact now" onPress={acts.compact!} />}
     </Box>
     </Box>
   )
