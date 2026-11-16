@@ -9,6 +9,17 @@
       "title": "Local metrics",
       "description": "Keep counters and a short event log in this mod's own store so /ctx stats can report how good its estimates are. Never sent anywhere.",
       "default": true
+    },
+    "openOnStart": {
+      "type": "string",
+      "title": "Open on start",
+      "description": "Open the Context Lens pane when a session starts: widget is its small form on the desktop app (a full pane elsewhere), pane is the full pane. In the terminal it shows only in a wide fullscreen layout; /ctx opens it anywhere.",
+      "options": [
+        "off",
+        "widget",
+        "pane"
+      ],
+      "default": "off"
     }
   }
 }

@@ -37,7 +37,7 @@ A one-row band above the prompt and a side panel opened with `/ctx`.
 - **What-if:** an estimate of what removing a memory file or MCP server frees, and how many turns until the one-time cache rebuild pays back.
 - **Trend:** window fill per turn, growth rate and turns to autocompact.
 
-`/ctx band` toggles the band.
+`/ctx band` toggles the band. To open the pane in every session, set the `openOnStart` option to `widget` (its small form on the desktop app) or `pane`; in the terminal it opens only where it fits as a sidebar.
 
 ![What-if tab](docs/images/terminal-what-if.png)
 

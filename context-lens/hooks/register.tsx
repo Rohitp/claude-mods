@@ -201,8 +201,22 @@ async function tickNow($: EngineInterface) {
 
 let timer: { cancel: () => void } | null = null
 
+/** Opens the pane unasked when the `openOnStart` option says so. A reload finds it already up
+ *  and leaves it alone; the engine keeps an unasked pane undrawn where it would not be a
+ *  sidebar (a narrow terminal), so this never takes over the screen. */
+async function openAtStart($: EngineInterface, how: 'widget' | 'pane'): Promise<void> {
+  try {
+    if ((await $.ui.panes()).some(p => p.id === PANE)) return
+    const r = await $.ui.open({ id: PANE, title: 'Context Lens', ...(how === 'widget' ? { placement: 'widget' as const } : {}) })
+    log($, 'info', 'open.start', { how, placed: r.isPlaced })
+  } catch (err) {
+    log($, 'error', 'open.start', { name: err instanceof Error ? err.name : 'unknown' })
+  }
+}
+
 export const register: Register = (on, options) => {
   isTracking = (options as Record<string, unknown>)?.metrics !== false
+  const openOnStart = (options as Record<string, unknown>)?.openOnStart
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'ctx', description: 'Context Lens: what fills the window; `band` toggles the band, `stats` shows metrics' })
@@ -216,6 +230,7 @@ export const register: Register = (on, options) => {
     } catch {
       // no response in the live window yet
     }
+    if (openOnStart === 'widget' || openOnStart === 'pane') await openAtStart($, openOnStart)
     return next(e)
   })
 
