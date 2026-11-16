@@ -189,6 +189,18 @@ test('desktop widget is the short form', () => {
   expect(hot.includes('Compact now')).toBe(true)
 })
 
+test('the band can be hidden from itself on both surfaces', () => {
+  const h = hist(300 * K, 412 * K)
+  for (const total of [412 * K, 842 * K]) {
+    const v = derive(lens(total), h, 0, 0)
+    for (const w of [60, 120]) {
+      const segs = ctxBand(v, w)
+      expect(segs.some(s => s.act === 'hide' && s.t.includes('×'))).toBe(true)
+    }
+    expect(flat(ctxBandDesktop(el, v, acts) as Node).includes('Hide')).toBe(true)
+  }
+})
+
 test('desktop band shows the alert action only when it matters', () => {
   const h = hist(300 * K, 842 * K)
   expect(flat(ctxBandDesktop(el, derive(lens(412 * K), h, 0, 0), acts) as Node).includes('Compact now')).toBe(false)

@@ -343,6 +343,11 @@ export const register: Register = (on, options) => {
           log($, 'info', 'offer.snooze', { total: v.lens?.total ?? 0 })
           return update($, snoozeAtom, () => v.lens?.total ?? 0)
         },
+        hide: async () => {
+          count('band.hide')
+          await update($, bandAtom, () => false)
+          $.ui.toast('Context band hidden. /ctx band brings it back.')
+        },
       }
       const below = await next(e)
       const own =

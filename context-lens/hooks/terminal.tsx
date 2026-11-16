@@ -86,8 +86,11 @@ export function ctxBand(v: View, w: number): Seg[] {
   })
   if (v.state === 'normal' && v.thresholdPct) items.push({ p: 9, segs: [S(`compacts at ${v.thresholdPct}%`, 'dim')] })
 
-  const right: Seg[] =
-    v.state === 'normal' || v.offer ? (w >= 100 ? [S('lens', 'accent', { act: 'open' })] : []) : [bracket('Compact now', 'compact')]
+  // The engine's [-] only collapses the band; × turns it off until `/ctx band`.
+  const right: Seg[] = [
+    ...(v.state === 'normal' || v.offer ? (w >= 100 ? [S('lens', 'accent', { act: 'open' })] : []) : [bracket('Compact now', 'compact')]),
+    S(' ×', 'dim', { act: 'hide' }),
+  ]
   const rw = right.reduce((n, s) => n + [...s.t].length, 0)
   const left = prio(items, w - rw - 2)
   return right.length ? lr(left, right, w) : left

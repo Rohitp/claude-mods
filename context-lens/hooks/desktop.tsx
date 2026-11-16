@@ -331,6 +331,7 @@ export function ctxBandDesktop(el: DesktopEl, v: View, acts: Acts) {
         {v.mode === 'api' && v.carry !== null ? `carry ~${usd(v.carry)}/turn est.` : v.mode === 'sub' && l.limitPct !== null ? `5h window ${l.limitPct}%` : ''}
       </Text>
       {v.state !== 'normal' && !offer && <Button key="compact" label="Compact now" onPress={acts.compact!} />}
+      <Button key="hide" plain dimColor label="Hide" onPress={acts.hide!} />
     </Box>
     </Box>
   )
