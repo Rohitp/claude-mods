@@ -236,3 +236,37 @@ test('a clock tick redraws only when the cold flag flips', () => {
   expect(crossesCold(290_000, 310_000, 0)).toBe(false)
   expect(crossesCold(290_000, 310_000, 5_000)).toBe(true)
 })
+
+// ---- trend scale ------------------------------------------------------------------------
+import { trendTopPct } from './hooks/svg'
+
+const low = (n = 2): Point[] => Array.from({ length: n }, (_, i) => ({ total: (28 + 2 * i) * K, overhead: 25 * K, isCompaction: false }))
+
+test('trend scale tops out just above the fullest turn', () => {
+  expect(trendTopPct(low(), 1000 * K)).toBe(5)
+  expect(trendTopPct(hist(300 * K, 400 * K), 1000 * K)).toBe(50)
+  expect(trendTopPct(hist(700 * K, 850 * K), 1000 * K)).toBe(100)
+})
+
+test('trend columns are tall and narrow at low fill, with autocompact off the scale', () => {
+  const svg = columnsSvg(low(), 1000 * K, 92)
+  const heights = [...svg.matchAll(/<rect [^>]*height="([\d.]+)"/g)].map(m => Number(m[1]))
+  const widths = [...svg.matchAll(/<rect [^>]*width="([\d.]+)"/g)].map(m => Number(m[1]))
+  expect(Math.max(...heights) > 50).toBe(true)
+  expect(Math.max(...widths) < 30).toBe(true)
+  expect(svg.includes('stroke-dasharray')).toBe(false)
+})
+
+test('the autocompact line sits at its percent, not on the axis', () => {
+  const svg = columnsSvg(hist(700 * K, 850 * K), 1000 * K, 92)
+  const y = Number(/<line [^>]*y1="([\d.]+)"[^>]*stroke-dasharray/.exec(svg)![1])
+  expect(Math.abs(y - (170 - 8 - 0.92 * 146)) < 0.5).toBe(true)
+})
+
+test('terminal trend scales rows to the data and points up to autocompact when it is off scale', () => {
+  const v = derive(lens(100 * K), low(4), 0, 0)
+  const rows = ctxPane(v, st('trend', low(4)), 56).map(text)
+  expect(rows.some(r => r.startsWith('  5% ┤'))).toBe(true)
+  expect(rows.filter(r => r.includes('┤') && r.includes('█')).length > 3).toBe(true)
+  expect(rows.some(r => r.includes('↑ autocompact at 92%'))).toBe(true)
+})

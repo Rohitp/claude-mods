@@ -4,7 +4,7 @@ import type { Elements } from 'claude-code'
 import { fk, fk1 } from './layout'
 import { WRITE, usd, whatIf } from './model'
 import type { View } from './model'
-import { colorOf, columnsSvg, miniStackSvg, rowBarSvg, stackedBarSvg } from './svg'
+import { PALETTE, colorOf, columnsSvg, miniStackSvg, rowBarSvg, stackedBarSvg, trendTopPct } from './svg'
 import type { PaneState } from './terminal'
 import type { Acts } from './terminal'
 
@@ -166,6 +166,7 @@ export function ctxPaneDesktop(el: DesktopEl, v: View, st: PaneState, acts: Acts
 
   if (st.tab === 'trend') {
     const hist = st.history
+    const top = trendTopPct(hist, l.window)
     return (
       <Box flexDirection="column" gap={1}>
         {summary}
@@ -179,10 +180,17 @@ export function ctxPaneDesktop(el: DesktopEl, v: View, st: PaneState, acts: Acts
               alt={`Window fill over the last ${hist.length} turns, now ${v.percent}%`}
               isInteractive
             />
-            <Text dimColor>
-              ■ messages · ■ overhead {fk(l.overhead)} · - - {v.thresholdPct ?? 92}% autocompact
-              {hist.some(p => p.isCompaction) ? ` · ▲ compacted at turn ${hist.find(p => p.isCompaction)!.n}` : ''}
-            </Text>
+            <Box gap={1} alignItems="center" flexWrap="wrap">
+              <Svg key="swm" source={rowBarSvg(1, PALETTE.messages, 8, 8)} alt="" width={8} height={8} />
+              <Text dimColor>messages</Text>
+              <Svg key="swo" source={rowBarSvg(1, PALETTE.mcp, 8, 8)} alt="" width={8} height={8} />
+              <Text dimColor>overhead {fk(l.overhead)}</Text>
+              <Text dimColor>
+                · top line {top}% of window ·{' '}
+                {(v.thresholdPct ?? 92) <= top ? `- - ${v.thresholdPct ?? 92}% autocompact` : `autocompact at ${v.thresholdPct ?? 92}%, off this scale`}
+                {hist.some(p => p.isCompaction) ? ` · ▲ compacted at turn ${hist.find(p => p.isCompaction)!.n}` : ''}
+              </Text>
+            </Box>
             {v.growth !== null && (
               <Text>
                 <Text bold>+{fk(Math.max(0, v.growth))}/turn</Text> <Text dimColor>average, last {Math.min(10, hist.length - 1)} turns</Text>

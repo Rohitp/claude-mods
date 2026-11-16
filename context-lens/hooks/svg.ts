@@ -93,13 +93,24 @@ export function rowBarSvg(frac: number, color: string, w = 84, h = 6): string {
   )
 }
 
-/** The trend: one stacked column per turn (overhead under messages), a dashed line at the
- *  compaction threshold and a triangle where a compaction happened. */
+const STEPS = [2, 5, 10, 20, 30, 50, 80, 100] // halves fit the terminal's 4-column labels
+
+/** The top of the trend's y-axis, in percent of the window: the smallest step that leaves
+ *  headroom above the fullest turn. A mostly empty 1M window still gets readable columns. */
+export function trendTopPct(points: Point[], window: number): number {
+  const peak = Math.max(0, ...points.map(p => (p.total / window) * 100))
+  return STEPS.find(s => s >= peak * 1.2) ?? 100
+}
+
+/** The trend: one stacked column per turn (overhead under messages), scaled to `trendTopPct`,
+ *  a dashed line at the compaction threshold when it is on the scale, and a triangle where a
+ *  compaction happened. Columns keep a column's shape however few turns there are. */
 export function columnsSvg(points: Point[], window: number, thresholdPct: number | null, w = 360, h = 170): string {
   const n = Math.max(1, points.length)
   const pad = 14
-  const cw = (w - pad) / n
-  const y = (v: number) => h - 8 - (Math.min(1.05, v / window) * (h - 24))
+  const top = (trendTopPct(points, window) / 100) * window
+  const cw = Math.min(28, (w - pad) / n)
+  const y = (tokens: number) => h - 8 - Math.min(1, tokens / top) * (h - 24)
   const cols = points
     .map((p, i) => {
       const x = pad + i * cw
@@ -116,13 +127,15 @@ export function columnsSvg(points: Point[], window: number, thresholdPct: number
       )
     })
     .join('')
+  const thr = thresholdPct !== null ? (thresholdPct / 100) * window : null
   const line =
-    thresholdPct !== null
-      ? `<line x1="${pad}" x2="${w}" y1="${y(thresholdPct / 100).toFixed(1)}" y2="${y(thresholdPct / 100).toFixed(1)}" stroke="${PALETTE.warn}" stroke-width="1.5" stroke-dasharray="5 4"/>`
+    thr !== null && thr <= top
+      ? `<line x1="${pad}" x2="${w}" y1="${y(thr).toFixed(1)}" y2="${y(thr).toFixed(1)}" stroke="${PALETTE.warn}" stroke-width="1.5" stroke-dasharray="5 4"/>`
       : ''
+  const grid = `<line x1="${pad}" x2="${w}" y1="16" y2="16" stroke="rgba(128,128,128,0.25)"/>`
   const axis = `<line x1="${pad}" x2="${w}" y1="${h - 8}" y2="${h - 8}" stroke="rgba(128,128,128,0.5)"/>`
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h + 6}" width="${w}" height="${h + 6}">` +
-    `<style>.s:hover{opacity:.7}</style>${axis}${line}${cols}</svg>`
+    `<style>.s:hover{opacity:.7}</style>${grid}${axis}${line}${cols}</svg>`
   )
 }

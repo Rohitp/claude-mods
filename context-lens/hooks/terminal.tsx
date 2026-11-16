@@ -4,7 +4,7 @@ import type { Elements } from 'claude-code'
 import { S, fit, fk, fk1, hbar, lr, padL, padR, prio, wrap } from './layout'
 import type { Item, Seg } from './layout'
 import { WRITE, usd, whatIf } from './model'
-import { PALETTE, colorOf } from './svg'
+import { PALETTE, colorOf, trendTopPct } from './svg'
 import type { View } from './model'
 import type { Cat, Point, Tab } from '../types'
 
@@ -294,14 +294,18 @@ function paneLines(v: View, st: PaneState, iw: number): Seg[][] {
     const msgC = PALETTE.messages
     const ovC = PALETTE.mcp
     const thr = v.thresholdPct ?? 92
+    // Rows are percent of the scale top, not of the window, so a mostly empty window still shows.
+    const top = trendTopPct(pts, l.window)
+    const k = 100 / top
+    const label = (pct: number) => padL(`${pct}%`, 4) + ' '
     for (let r = 0; r < H; r++) {
       const hi = 100 - (100 / H) * r
       const lo = hi - 100 / H
-      const row: Seg[] = [S(r === 0 ? '100% ' : r === 4 ? ' 50% ' : r === 7 ? '  0% ' : '     ', 'dim'), S('┤', 'line')]
+      const row: Seg[] = [S(r === 0 ? label(top) : r === 4 ? label(top / 2) : r === 7 ? label(0) : '     ', 'dim'), S('┤', 'line')]
       pts.forEach(p => {
-        const val = (p.total / l.window) * 100
-        const ov = (p.overhead / l.window) * 100
-        const isThr = thr <= hi && thr > lo
+        const val = (p.total / l.window) * 100 * k
+        const ov = (p.overhead / l.window) * 100 * k
+        const isThr = thr * k <= hi && thr * k > lo
         if (val >= hi) row.push({ ...S('█', 'fg'), c: (hi + lo) / 2 <= ov ? ovC : msgC })
         else if (val > lo) {
           const ix = Math.floor(((val - lo) / (100 / H)) * 8)
@@ -313,7 +317,7 @@ function paneLines(v: View, st: PaneState, iw: number): Seg[][] {
     b.push([S(`     └${'─'.repeat(n)}`, 'line')])
     const comp = pts.findIndex(p => p.isCompaction)
     if (comp >= 0) b.push([S(`${' '.repeat(6 + comp)}▲ compacted at turn ${pts[comp]!.n}`, 'dim')])
-    b.push([S('█', 'fg', { c: msgC }), S(' messages  ', 'dim'), S('█', 'fg', { c: ovC }), S(` overhead ${fk(l.overhead)}  `, 'dim'), S('┄', 'warn'), S(` ${thr}%`, 'dim')])
+    b.push([S('█', 'fg', { c: msgC }), S(' messages  ', 'dim'), S('█', 'fg', { c: ovC }), S(` overhead ${fk(l.overhead)}  `, 'dim'), ...(thr <= top ? [S('┄', 'warn'), S(` ${thr}% autocompact`, 'dim')] : [S(`↑ autocompact at ${thr}%`, 'dim')])])
     b.push([])
     if (v.growth !== null) {
       b.push([S(`+${fk(Math.max(0, v.growth))}/turn`, 'fg b'), S(` average, last ${Math.min(10, series.length - 1)} turns`, 'dim')])
