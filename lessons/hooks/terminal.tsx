@@ -71,7 +71,7 @@ export function lessonsBand(v: View, w: number, canReview = w >= 110): Seg[] | n
     items = [
       { p: 0, segs: [S('lessons', 'dim')] },
       { p: 0, tight: true, segs: [S('loop caught', 'warn b')] },
-      { flex: live.kl === 're-fetch loop' ? `${live.call} re-run ${live.n}× with different limits` : `${live.call} failed ${live.n}× with the same error`, min: 18 },
+      { flex: `${live.call} ${live.what}`, min: 18 },
       { p: 0, segs: [S(fkd(live.wasted), 'fg'), S(' wasted est.', 'dim')] },
     ]
     if (isApi(v)) items.push({ p: 9, tight: true, segs: [S(`(${ap(live.wasted, v.price)})`, 'dim')] })
@@ -388,9 +388,9 @@ function confirmView(v: View, iw: number): Seg[][] | null {
 }
 
 // ---- toast ---------------------------------------------------------------------------------------
-export function toastText(call: string, n: number, wasted: number, price: number | null, mode: 'api' | 'sub', refetch = false): string {
+export function toastText(call: string, what: string, wasted: number, price: number | null, mode: 'api' | 'sub'): string {
   const w = mode === 'api' && price !== null ? `${fkd(wasted)} wasted, est., ~${usd(wasted, price)}` : `${fkd(wasted)} tokens wasted, est.`
-  return `Caught a loop: ${call} ${refetch ? `re-run ${n}× with different limits` : `failed ${n}× with the same error`} (${w}). Added a one-line note to the model's next turn. Details in /lessons.`
+  return `Caught a loop: ${call} ${what} (${w}). Added a one-line note to the model's next turn. Details in /lessons.`
 }
 
 // ---- row ------------------------------------------------------------------------------------------

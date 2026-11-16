@@ -12,7 +12,12 @@ import {
   interrupted,
   isRepoPath,
   keyOf,
+  callOf,
   liveHint,
+  loopPhrase,
+  newPatterns,
+  patternsCompacted,
+  trackPatterns,
   loopRows,
   lineOf,
   loopSize,
@@ -55,6 +60,8 @@ const uiAtom = atom({ plugin: 'lessons', key: 'ui' } as const, DEFAULT_UI)
 
 // Per session, in memory; a reload starts these over. What was approved lives in the store.
 const entries = new Map<string, Entry>()
+/** What links calls for the cross-call loops; module memory, so a reload starts these streaks over. */
+let patterns = newPatterns()
 const shown = new Map<string, number>()
 const dismissed = new Set<string>()
 const kept = new Set<string>()
@@ -425,7 +432,9 @@ async function onCall($: EngineInterface, e: Record<string, unknown> & { tool: s
   const { tool, tool_use_id: _id, consent: _c, agentId: _a, ...input } = e as Record<string, unknown> & { tool: string }
   const text = typeof ran.text === 'string' ? ran.text : ''
   const isError = ran.isError === true
-  const entry = track(entries, { tool, input, text, isError, at: await $.clock.now(), turn })
+  const call = { tool, input, text, isError, at: await $.clock.now(), turn }
+  const entry = track(entries, call)
+  const linked = trackPatterns(patterns, entries, call)
 
   const key = keyOf(tool, input)
   const first = (key.split(/\s+/)[0] ?? '').replace(/^.*\//, '')
@@ -447,22 +456,25 @@ async function onCall($: EngineInterface, e: Record<string, unknown> & { tool: s
       notes.push(`Lessons: ${rule.text}`)
     }
   }
-  if (!rules.some(r => r.sig === entry.sig) && isLive && shouldHint(entry)) {
-    const wasFirst = entry.hinted === 0
-    entry.hinted = Math.max(entry.hinted, entry.sameErr, entry.variants.length)
-    const hint = liveHint(entry)
-    entry.note = hint
+  // One nudge per call: the per-command loop first, then whichever cross-call loop is due.
+  const due = isLive ? [entry, ...linked].filter(x => !rules.some(r => r.sig === x.sig) && shouldHint(x)) : []
+  const pick = due[0]
+  if (pick) {
+    const wasFirst = pick.hinted === 0
+    for (const x of due) x.hinted = Math.max(x.hinted, loopSize(x))
+    const hint = liveHint(pick)
+    pick.note = hint
     notes.push(hint)
-    log($, 'hint', { tool, wasted: wastedTokens(entry), n: entry.hinted })
+    log($, 'hint', { tool, kind: pick.loop ?? 'call', wasted: wastedTokens(pick), n: pick.hinted })
     if (wasFirst) {
       const model = await $.session.model()
-      $.ui.toast(toastText(`${tool} ${entry.sample}`.slice(0, 48), loopSize(entry), wastedTokens(entry), priceOf(model), billing, entry.paged && entry.errors < entry.count))
+      $.ui.toast(toastText(callOf(pick).slice(0, 48), loopPhrase(pick, loopSize(pick)), wastedTokens(pick), priceOf(model), billing))
     }
   }
   if (notes.length) void save($)
 
   // Redraw only when what the pane or band shows has changed.
-  const sig = `${entries.size}:${[...entries.values()].map(x => `${x.count}.${x.errors}.${x.corrections}.${x.peak}`).join(',')}:${rules.map(r => `${r.fired}.${r.recurred}`).join(',')}`
+  const sig = `${entries.size}:${[...entries.values()].map(x => `${x.count}.${x.errors}.${x.corrections}.${x.peak}.${x.streak}`).join(',')}:${rules.map(r => `${r.fired}.${r.recurred}`).join(',')}`
   if (sig !== signature) {
     signature = sig
     await saveSession($)
@@ -502,6 +514,11 @@ export const register: Register = (on, options) => {
     } catch (err) {
       log($, 'error', { where: 'session.end', msg: String(err).slice(0, 80) })
     }
+    return next(e)
+  })
+
+  on('session.compact', async ($, e, next) => {
+    patternsCompacted(patterns, entries)
     return next(e)
   })
 

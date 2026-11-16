@@ -14,6 +14,9 @@ import {
   loopSize,
   matcherFor,
   matches,
+  newPatterns,
+  patternsCompacted,
+  trackPatterns,
   memoryCandidates,
   missKey,
   propose,
@@ -329,7 +332,7 @@ test('the top proposal is open by default and says why', () => {
 })
 
 test('toast is one plain sentence', () => {
-  const t = toastText('Bash pnpm build', 3, 4100, 4, 'api')
+  const t = toastText('Bash pnpm build', 'failed 3× with the same error', 4100, 4, 'api')
   expect(t.includes('\n')).toBe(false)
   expect(t.includes('4.1k wasted')).toBe(true)
 })
@@ -379,4 +382,123 @@ test('a bare exit-code line from an older session is not shown as the reason', (
   const e = sanitizeEntries(old)[0]!
   expect(e.errLine).toBe('')
   expect(e.ev[0]).toBe('t1  Bash  cat /x')
+})
+
+// ---- loops that span calls ------------------------------------------------------------------------
+const call = (tool: string, input: Record<string, unknown>, text = 'ok', isError = false, turn = 1) => ({ tool, input, text, isError, at: 0, turn })
+const edit = (file: string, a: string, b: string) => call('Edit', { file_path: file, old_string: a, new_string: b })
+const flow = (calls: ReturnType<typeof call>[]) => {
+  const m = new Map<string, Entry>()
+  const st = newPatterns()
+  const last: Entry[][] = []
+  for (const c of calls) {
+    track(m, c)
+    last.push(trackPatterns(st, m, c))
+  }
+  return { m, st, last, loop: (kind: string) => [...m.values()].find(e => e.loop === kind) }
+}
+const TS_ERR = 'src/a.ts(12,5): error TS2322: Type \'string\' is not assignable to type \'number\'.'
+
+test('the same error from different commands is one loop', () => {
+  const { loop, m } = flow([
+    call('Bash', { command: 'npx tsc --noEmit' }, `Exit code 2\n${TS_ERR}`, true),
+    call('Bash', { command: 'npm run build' }, `> build\n${TS_ERR.replace('12,5', '13,5')}`, true),
+    call('Bash', { command: 'pnpm tsc -p .' }, `Exit code 2\n${TS_ERR}`, true),
+  ])
+  const e = loop('cross')!
+  expect(loopSize(e)).toBe(3)
+  expect(shouldHint(e)).toBe(true)
+  expect(liveHint(e).includes('3 different commands')).toBe(true)
+  expect(loopRows(m, new Set()).some(r => r.kl === 'same-error loop')).toBe(true)
+})
+
+test('one command failing alone is not a same-error loop, and a success ends one', () => {
+  expect(flow([0, 1, 2].map(() => call('Bash', { command: 'npx tsc' }, TS_ERR, true))).loop('cross')).toBe(undefined)
+  const { loop } = flow([
+    call('Bash', { command: 'npx tsc' }, TS_ERR, true),
+    call('Bash', { command: 'npm run build' }, TS_ERR, true),
+    call('Bash', { command: 'npx tsc' }, 'ok'),
+    call('Bash', { command: 'pnpm tsc' }, TS_ERR, true),
+  ])
+  expect(loopSize(loop('cross')!)).toBe(0)
+})
+
+test('a bare exit header is too generic to link commands', () => {
+  const { loop } = flow(['a', 'b', 'c'].map(x => call('Bash', { command: x }, 'Exit code 1\nerror', true)))
+  expect(loop('cross')).toBe(undefined)
+})
+
+test('edits that undo each other are a loop at the second undo', () => {
+  const one = flow([edit('a.ts', 'x = 1', 'x = 2'), edit('a.ts', 'x = 2', 'x = 1')])
+  expect(loopSize(one.loop('undo')!)).toBe(0) // one revert can be an experiment
+  const { loop } = flow([edit('a.ts', 'x = 1', 'x = 2'), edit('a.ts', 'x = 2', 'x = 1'), edit('a.ts', 'x = 1', 'x = 2')])
+  const e = loop('undo')!
+  expect(loopSize(e)).toBe(3)
+  expect(e.sample).toBe('a.ts')
+  expect(liveHint(e).includes('undoing')).toBe(true)
+})
+
+test('whole-file writes back to an earlier version count as undoing', () => {
+  const w = (c: string) => call('Write', { file_path: 'b.ts', content: c })
+  const { loop } = flow([w('v1'), w('v2'), w('v1'), w('v2')])
+  expect(loopSize(loop('undo')!)).toBe(3)
+})
+
+test('forward edits are not an undo loop', () => {
+  const { loop } = flow([edit('a.ts', 'a', 'b'), edit('a.ts', 'b', 'c'), edit('a.ts', 'c', 'd')])
+  expect(loop('undo')).toBe(undefined)
+})
+
+test('a failure that survives each fix is a fix-and-retest loop, even when timings differ', () => {
+  // The stack line moves with each fix; the failure itself does not.
+  const fail = (fn: string) => `FAIL src/a.test.ts\n    at ${fn} (src/a.ts:2:10)\n  ✕ adds numbers\n  Expected: 3\n  Received: 4\nTests: 1 failed, 9 passed`
+  const t = (fn: string) => call('Bash', { command: 'npx vitest run' }, fail(fn), true)
+  const { loop, m } = flow([t('add'), edit('a.ts', 'a+b', 'a+b+0'), t('sum'), edit('a.ts', 'a+b+0', 'b+a'), t('plus')])
+  const e = loop('retest')!
+  expect(loopSize(e)).toBe(3)
+  expect(liveHint(e).includes('after 2 fixes')).toBe(true)
+  // The exact-text loop does not see it: the text changes every run.
+  expect(isLoop(m.get(describe('Bash', { command: 'npx vitest run' }).sig)!)).toBe(false)
+})
+
+test('a new failure after a fix is progress, and plain retries are not fix cycles', () => {
+  const t = (txt: string) => call('Bash', { command: 'pytest -q' }, txt, true)
+  const progress = flow([t('FAILED test_a - assert 1 == 2'), edit('a.py', 'a', 'b'), t('FAILED test_b - KeyError: x'), edit('a.py', 'b', 'c'), t('FAILED test_c - TypeError')])
+  expect(progress.loop('retest')).toBe(undefined)
+  const retries = flow([0, 1, 2].map(() => t('FAILED test_a - assert 1 == 2')))
+  expect(retries.loop('retest')).toBe(undefined)
+})
+
+test('re-reading a file with no change is a loop; an edit, a command on it, or a compaction resets it', () => {
+  const r = (file = 'big.ts') => call('Read', { file_path: file })
+  expect(loopSize(flow([r(), r(), r()]).loop('reread')!)).toBe(3)
+  expect(flow([r(), r(), edit('big.ts', 'a', 'b'), r()]).loop('reread')).toBe(undefined)
+  expect(flow([r(), r(), call('Bash', { command: 'prettier -w big.ts' }), r()]).loop('reread')).toBe(undefined)
+  const paged = flow([call('Read', { file_path: 'big.ts', offset: 1 }), call('Read', { file_path: 'big.ts', offset: 200 }), call('Read', { file_path: 'big.ts', offset: 400 })])
+  expect(paged.loop('reread')).toBe(undefined)
+  const f = flow([r(), r(), r()])
+  patternsCompacted(f.st, f.m)
+  expect(loopSize(f.loop('reread')!)).toBe(0)
+})
+
+test('cross-call loops become priced proposals and survive a reload', () => {
+  const { m } = flow([edit('a.ts', 'x = 1', 'x = 2'), edit('a.ts', 'x = 2', 'x = 1'), edit('a.ts', 'x = 1', 'x = 2')])
+  const p = propose(m, new Set(), 60).find(x => x.kl === 'undo loop')!
+  expect(p.kind).toBe('loop')
+  expect(p.text.includes('a.ts')).toBe(true)
+  expect(p.saved > 0).toBe(true)
+  const back = sanitizeEntries(JSON.parse(JSON.stringify([...m.values()])))
+  const u = back.find(e => e.loop === 'undo')!
+  expect(u.streak).toBe(3)
+  expect(loopSize(u)).toBe(3)
+})
+
+test('desktop band: only the middle text can shrink, so counts and buttons stay whole', () => {
+  const { m } = flow([edit('a.ts', 'x = 1', 'x = 2'), edit('a.ts', 'x = 2', 'x = 1'), edit('a.ts', 'x = 1', 'x = 2')])
+  const v = view({ loops: loopRows(m, new Set()) })
+  const band = lessonsBandDesktop(el, v as never, new Proxy({}, { get: () => () => {} }) as never) as unknown as { kids: Node[] }
+  const parts = (band.kids as unknown[]).flat() as Array<{ props: Record<string, unknown> }>
+  const shrinkable = parts.filter(k => k.props.flexShrink !== 0)
+  expect(shrinkable.length).toBe(1)
+  expect(flat(band as never).includes('undoing')).toBe(true)
 })

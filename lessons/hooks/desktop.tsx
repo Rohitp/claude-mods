@@ -27,31 +27,36 @@ export function lessonsBandDesktop(el: El, v: View, acts: Acts) {
   const hidden = !live && (v.props.length === 0 || v.props.length <= v.ui.later)
   if (hidden) return null
   const p = v.props[0]
+  // Fixed parts never shrink or wrap; only the middle text gives way, cut with an ellipsis.
+  const fixed = (key: string, kid: JSX.Element) => (
+    <Box key={key} flexShrink={0}>
+      {kid}
+    </Box>
+  )
+  const middle = (text: string) => (
+    <Box key="what" flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
+      <Text wrap="truncate-end">{text}</Text>
+    </Box>
+  )
+  const head = live
+    ? [fixed('tag', <Text bold color="warning">loop caught</Text>), middle(`${live.call} ${live.what}`)]
+    : [fixed('n', <Text><Text bold color="claude">{v.props.length}</Text> to review</Text>), middle(`${GL[p.kind].split(' ')[0]} ${p.text}`)]
+  const cost = live ? (
+    <Text>
+      {fkd(live.wasted)} wasted <Text dimColor>est.{isApi(v) ? ` (${usd(live.wasted, v.price)})` : ''}</Text>
+    </Text>
+  ) : (
+    <Text>
+      net <Text bold color={netColor(p.netJit)}>{sg(p.netJit)}</Text> <Text dimColor>est.{isApi(v) ? ` (${usd(p.netJit, v.price)})` : ''}</Text>
+    </Text>
+  )
   return (
-    <Box key="lessons-band" gap={1} alignItems="center" borderStyle="round" paddingX={1}>
-      <Text dimColor>lessons</Text>
-      {live ? (
-        <Box gap={1}>
-          <Text bold color="warning">loop caught</Text>
-          <Text wrap="truncate">
-            {live.call} {live.kl === 're-fetch loop' ? `re-run ${live.n}× with different limits` : `failed ${live.n}× with the same error`}
-          </Text>
-          <Text>
-            {fkd(live.wasted)} wasted <Text dimColor>est.{isApi(v) ? ` (${usd(live.wasted, v.price)})` : ''}</Text>
-          </Text>
-        </Box>
-      ) : (
-        <Box gap={1}>
-          <Text bold color="claude">{v.props.length}</Text>
-          <Text>to review</Text>
-          <Text wrap="truncate">{GL[p.kind].split(' ')[0]} {p.text}</Text>
-          <Text>
-            net <Text bold color={netColor(p.netJit)}>{sg(p.netJit)}</Text> <Text dimColor>est.{isApi(v) ? ` (${usd(p.netJit, v.price)})` : ''}</Text>
-          </Text>
-        </Box>
-      )}
-      <Button key="review" label="[ Review ]" onPress={acts.review} />
-      <Button key="later" label="Later" onPress={acts.later} />
+    <Box key="lessons-band" gap={1} alignItems="center" borderStyle="round" paddingX={1} flexWrap="nowrap">
+      {fixed('label', <Text dimColor>lessons</Text>)}
+      {head}
+      {fixed('cost', cost)}
+      {fixed('review', <Button key="review" label="[ Review ]" onPress={acts.review} />)}
+      {fixed('later', <Button key="later" label="Later" onPress={acts.later} />)}
     </Box>
   )
 }

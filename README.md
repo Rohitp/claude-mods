@@ -61,7 +61,14 @@ The cache band appears above the context band in the last minute before expiry (
 
 Catches failures, loops and corrections as they happen, and turns each into a one-line rule with a price. Nothing is written until you accept it.
 
-- **Live nudge:** the third identical failure (or the third re-run of a command with a bigger `head -n`) adds one short note after the tool result so the model changes approach, and shows a toast. `liveHints: false` turns the note off.
+- **Live nudge:** a loop's third step adds one short note after the tool result so the model changes approach, and shows a toast. `liveHints: false` turns the note off. It catches:
+  - the same failure from one call three times, or one command re-run with a bigger `head -n`;
+  - the same error from different commands (`tsc`, `npm run build`, `pnpm tsc` all failing on one type error);
+  - edits that undo each other (A→B, B→A, A→B), including whole-file writes back to an earlier version;
+  - a failure that survives each fix: run, edit, near-identical failure, with timings and line numbers ignored;
+  - one file range read three times with nothing changed in between (an edit, a command naming the file, or a compaction resets it).
+
+  A call gets at most one note, so overlapping loops don't stack.
 - **Proposals:** each has the evidence, what it wasted (measured), what it costs to carry, and the net. A rule that costs more than it saves is dimmed and says so.
 - **Delivery:** *just in time* shows the rule once per session when a matching call runs again. *Always on* writes it to `CLAUDE.local.md` between markers. Both ask first, and **Undo** lasts until your next turn.
 - **Active:** accepted rules, how often they fired, and whether the failure came back.
