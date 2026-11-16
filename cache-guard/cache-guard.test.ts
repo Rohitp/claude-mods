@@ -39,6 +39,16 @@ test('cost model: miss, ping and break-even on Opus 5.5', () => {
   expect(v.clock).toBe('0:48')
 })
 
+test('cost model: a 1-hour TTL writes at 2x, so a miss costs more and keep warm lasts longer', () => {
+  const v = derive({ ...base, ttlMs: 3_600_000 })
+  expect(v.write).toBe(2)
+  expect(Math.round((v.miss ?? 0) * 100) / 100).toBe(3.21)
+  expect(v.breakEven).toBe(39)
+  const sub = derive({ ...base, ttlMs: 3_600_000, billing: 'sub', now: 3_560_000 })
+  expect(toastText(sub).includes('at 2x')).toBe(true)
+  expect(derive(base).write).toBe(1.25)
+})
+
 test('state thresholds', () => {
   expect(derive({ ...base, now: 1_000 }).state).toBe('normal')
   expect(derive({ ...base, now: 242_000 }).state).toBe('warn')

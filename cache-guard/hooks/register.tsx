@@ -148,7 +148,7 @@ async function ping($: EngineInterface) {
       count('ping.ok')
       count('ping.read', hit)
       log($, 'info', 'ping.ok', { read: hit, out: u.output_tokens, in: u.input_tokens, ms, n })
-      if (n >= breakEven(touch.model)) {
+      if (n >= breakEven(touch.model, await read($, ttlAtom))) {
         await stopKeepWarm($, 'breakeven', `another ping would cost more than the miss it avoids (${n} in a row)`)
       }
     } else {

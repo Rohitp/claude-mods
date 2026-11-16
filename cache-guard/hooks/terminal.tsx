@@ -3,7 +3,7 @@ import type { Elements } from 'claude-code'
 
 import { S, fit, fk, lr, padL, prio, wrap, dur } from './layout'
 import type { Seg } from './layout'
-import { WRITE, intervalLabel, shortModel, usd } from './model'
+import { intervalLabel, shortModel, usd } from './model'
 import type { View } from './model'
 
 export type Acts = Record<string, () => void>
@@ -43,7 +43,7 @@ export function cacheBand(v: View, w: number): Seg[] | null {
         { p: 3, segs: [S('a ping costs ', 'dim'), S(usd(v.ping ?? 0), 'fg')] },
       )
     } else {
-      items.push({ p: 0, segs: [S('then re-sends ', 'dim'), S(`${fk(v.tokens)} at ${WRITE}x`, 'fg')] })
+      items.push({ p: 0, segs: [S('then re-sends ', 'dim'), S(`${fk(v.tokens)} at ${v.write}x`, 'fg')] })
       if (v.limitPct !== null) items.push({ p: 2, segs: [S('5h window ', 'dim'), S(`${v.limitPct}%`, 'fg')] })
     }
     right = [bracket('Keep warm', 'warm')]
@@ -55,7 +55,7 @@ export function cacheBand(v: View, w: number): Seg[] | null {
         segs: [S(`next turn rewrites ${fk(v.tokens)} `, 'dim'), S(`(+${usd(v.miss ?? 0)} est.)`, 'fg')],
       })
     } else {
-      items.push({ p: 0, segs: [S('next turn re-sends ', 'dim'), S(`${fk(v.tokens)} at ${WRITE}x`, 'fg')] })
+      items.push({ p: 0, segs: [S('next turn re-sends ', 'dim'), S(`${fk(v.tokens)} at ${v.write}x`, 'fg')] })
     }
     items.push({ p: 3, segs: [S('cheapest moment to compact', 'dim')] })
     right = [bracket('Compact now', 'compact')]
@@ -135,17 +135,17 @@ function paneLines(v: View, iw: number): Seg[][] {
   if (v.mode === 'api') {
     b.push([S('Miss ', 'dim'), S(`+${usd(v.miss ?? 0)}`, 'fg'), S(' · ping ', 'dim'), S(usd(v.ping ?? 0), 'fg'), S(' · est.', 'dim')])
   } else if (v.mode === 'sub') {
-    b.push([S(`A miss re-sends it at ${WRITE}x`, 'dim')], [S(`A ping re-reads it at ${v.readMult}x`, 'dim')])
+    b.push([S(`A miss re-sends it at ${v.write}x`, 'dim')], [S(`A ping re-reads it at ${v.readMult}x`, 'dim')])
     if (v.limitPct !== null) b.push([S('5h window ', 'dim'), S(`${v.limitPct}%`, 'fg'), S(' used', 'dim')])
   } else {
-    b.push([S(`Miss ${WRITE}x · ping ${v.readMult}x · prices unknown`, 'dim')])
+    b.push([S(`Miss ${v.write}x · ping ${v.readMult}x · prices unknown`, 'dim')])
   }
 
   if (isCold) {
     b.push([])
     b.push(
       ...wrap(
-        `Cache is cold — compact now. The next turn rewrites all ${fk(v.tokens)} either way${v.mode === 'api' && v.miss !== null ? ` (+${usd(v.miss)} est.)` : ` at ${WRITE}x`}. Compacting first means you rebuild a smaller prefix instead.`,
+        `Cache is cold — compact now. The next turn rewrites all ${fk(v.tokens)} either way${v.mode === 'api' && v.miss !== null ? ` (+${usd(v.miss)} est.)` : ` at ${v.write}x`}. Compacting first means you rebuild a smaller prefix instead.`,
         iw,
         'fg',
       ),
@@ -166,7 +166,7 @@ function paneLines(v: View, iw: number): Seg[][] {
       b.push(
         v.net !== null && v.miss !== null
           ? [S(`Saved ${v.avoided} miss${v.avoided > 1 ? 'es' : ''} `, 'dim'), S(`+${usd(v.avoided * v.miss)}`, 'fg'), S(' · net ', 'dim'), S(`${v.net >= 0 ? '−' : '+'}${usd(Math.abs(v.net))} est.`, v.net >= 0 ? 'ok' : 'warn')]
-          : [S(`Avoided ${v.avoided} miss${v.avoided > 1 ? 'es' : ''} `, 'dim'), S(`(${fk(v.tokens)} at ${WRITE}x)`, 'fg')],
+          : [S(`Avoided ${v.avoided} miss${v.avoided > 1 ? 'es' : ''} `, 'dim'), S(`(${fk(v.tokens)} at ${v.write}x)`, 'fg')],
       )
     }
     b.push(...wrap(`Pings every ${intervalLabel(v.ttlMs)} while you are away. Stops by itself after ${v.breakEven} pings in a row, or 2h without a turn.`, iw, 'dim'))
@@ -209,7 +209,7 @@ function paneLines(v: View, iw: number): Seg[][] {
       b.push(
         lr(
           [S(`${time}  `, 'dim'), S(x.cause, x.cause === 'cause unknown' ? 'dim' : 'fg'), S(iw >= 50 && x.detail ? `  ${x.detail}` : '', 'dim')],
-          [S(v.mode === 'api' && v.missPerToken !== null ? `+${usd(x.tokens * v.missPerToken)}` : `${fk(x.tokens)} × ${WRITE}`, 'fg')],
+          [S(v.mode === 'api' && v.missPerToken !== null ? `+${usd(x.tokens * v.missPerToken)}` : `${fk(x.tokens)} × ${v.write}`, 'fg')],
           iw,
         ),
       )

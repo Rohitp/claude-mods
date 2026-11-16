@@ -2,7 +2,7 @@
 import type { Elements } from 'claude-code'
 
 import { dur, fk } from './layout'
-import { WRITE, intervalLabel, shortModel, usd } from './model'
+import { intervalLabel, shortModel, usd } from './model'
 import type { View } from './model'
 import { COLORS, miniBarSvg, ringSvg, stepsSvg } from './svg'
 import type { Acts } from './terminal'
@@ -23,9 +23,9 @@ const modeLabel = (v: View): string =>
 function missLine(v: View): string {
   if (v.mode === 'api') return `A miss costs +${usd(v.miss ?? 0)} est. · a ping costs ${usd(v.ping ?? 0)}`
   if (v.mode === 'sub') {
-    return `A miss re-sends ${fk(v.tokens)} at ${WRITE}x · a ping re-reads it at ${v.readMult}x${v.limitPct !== null ? ` · 5h window ${v.limitPct}%` : ''}`
+    return `A miss re-sends ${fk(v.tokens)} at ${v.write}x · a ping re-reads it at ${v.readMult}x${v.limitPct !== null ? ` · 5h window ${v.limitPct}%` : ''}`
   }
-  return `Miss ${WRITE}x · ping ${v.readMult}x · prices unknown for this model`
+  return `Miss ${v.write}x · ping ${v.readMult}x · prices unknown for this model`
 }
 
 export function cachePaneDesktop(el: El, v: View, acts: Acts) {
@@ -86,8 +86,8 @@ export function cachePaneDesktop(el: El, v: View, acts: Acts) {
       </Box>
       <Text dimColor>TTL {v.ttlLabel} assumed · {modeLabel(v)} · {shortModel(v.model)}</Text>
       <Box>
-        <Button key="ttl5" label={v.ttlLabel === '5m' ? '[ 5m ]' : '5m'} onPress={acts.ttl5} />
-        <Button key="ttl1h" label={v.ttlLabel === '1h' ? '[ 1h ]' : '1h'} onPress={acts.ttl1h} />
+        <Button key="ttl5" label={v.ttlLabel === '5m' ? '[ 5m ]' : '5m'} onPress={acts.ttl5!} />
+        <Button key="ttl1h" label={v.ttlLabel === '1h' ? '[ 1h ]' : '1h'} onPress={acts.ttl1h!} />
       </Box>
 
       <Box flexDirection="column">
@@ -99,11 +99,11 @@ export function cachePaneDesktop(el: El, v: View, acts: Acts) {
         <Box flexDirection="column" borderStyle="round" paddingX={1}>
           <Text bold color="error">Cache is cold — compact now</Text>
           <Text>
-            The next turn rewrites all {fk(v.tokens)} either way{v.mode === 'api' && v.miss !== null ? ` (+${usd(v.miss)} est.)` : ` at ${WRITE}x`}. Compacting first means you rebuild a smaller prefix instead.
+            The next turn rewrites all {fk(v.tokens)} either way{v.mode === 'api' && v.miss !== null ? ` (+${usd(v.miss)} est.)` : ` at ${v.write}x`}. Compacting first means you rebuild a smaller prefix instead.
           </Text>
           <Box>
-            <Button key="compact" label="Compact now" onPress={acts.compact} />
-            <Button key="dismiss" label="Keep working" onPress={acts.dismiss} />
+            <Button key="compact" label="Compact now" onPress={acts.compact!} />
+            <Button key="dismiss" label="Keep working" onPress={acts.dismiss!} />
           </Box>
         </Box>
       )}
@@ -111,7 +111,7 @@ export function cachePaneDesktop(el: El, v: View, acts: Acts) {
       <Box flexDirection="column" borderStyle="round" paddingX={1}>
         <Box justifyContent="space-between">
           <Text bold>Keep warm</Text>
-          <Button key="warm" label={v.isKeepWarm ? 'On · turn off' : 'Off · turn on'} onPress={acts.warm} />
+          <Button key="warm" label={v.isKeepWarm ? 'On · turn off' : 'Off · turn on'} onPress={acts.warm!} />
         </Box>
         <Text dimColor>
           {v.isKeepWarm
@@ -130,7 +130,7 @@ export function cachePaneDesktop(el: El, v: View, acts: Acts) {
               ]
             : [
                 tile('Ping costs', v.mode === 'api' && v.ping !== null ? usd(v.ping) : `${v.readMult}x`),
-                tile('Miss costs', v.mode === 'api' && v.miss !== null ? `+${usd(v.miss)}` : `${WRITE}x`),
+                tile('Miss costs', v.mode === 'api' && v.miss !== null ? `+${usd(v.miss)}` : `${v.write}x`),
                 tile('Break-even', `${v.breakEven} pings`),
               ]}
         </Box>
@@ -174,7 +174,7 @@ export function cachePaneDesktop(el: El, v: View, acts: Acts) {
               <Text italic={b.cause === 'cause unknown'} dimColor={b.cause === 'cause unknown'}>{b.cause}</Text>
               <Text dimColor>{b.detail}</Text>
               <Text>
-                {v.mode === 'api' && v.missPerToken !== null ? `+${usd(b.tokens * v.missPerToken)}` : `${fk(b.tokens)} × ${WRITE}`}
+                {v.mode === 'api' && v.missPerToken !== null ? `+${usd(b.tokens * v.missPerToken)}` : `${fk(b.tokens)} × ${v.write}`}
               </Text>
             </Box>
           ))}
@@ -191,12 +191,12 @@ export function cacheBandDesktop(el: El, v: View, acts: Acts) {
   const body = isCold
     ? v.mode === 'api'
       ? `The next turn rewrites ${fk(v.tokens)} (+${usd(v.miss ?? 0)} est.). This is the cheapest moment to compact.`
-      : `The next turn re-sends ${fk(v.tokens)} at ${WRITE}x. This is the cheapest moment to compact.`
+      : `The next turn re-sends ${fk(v.tokens)} at ${v.write}x. This is the cheapest moment to compact.`
     : v.isKeepWarm
       ? `Keep warm is on · pings at 0:30 · ${v.totalPings} pings`
       : v.mode === 'api'
         ? `Then a miss costs +${usd(v.miss ?? 0)} est. A ping costs ${usd(v.ping ?? 0)}.`
-        : `Then the next turn re-sends ${fk(v.tokens)} at ${WRITE}x.`
+        : `Then the next turn re-sends ${fk(v.tokens)} at ${v.write}x.`
   return (
     <Box gap={2} alignItems="center" borderStyle="round" paddingX={1}>
       <Svg
@@ -208,11 +208,11 @@ export function cacheBandDesktop(el: El, v: View, acts: Acts) {
       <Text bold color={roleColor(v)}>{isCold ? 'Cache is cold' : `Cache expires in ${v.clock}`}</Text>
       <Text dimColor wrap="truncate">{body}</Text>
       {isCold ? (
-        <Button key="compact" label="Compact now" onPress={acts.compact} />
+        <Button key="compact" label="Compact now" onPress={acts.compact!} />
       ) : (
-        <Button key="warm" label={v.isKeepWarm ? 'Turn off keep warm' : 'Keep warm'} onPress={acts.warm} />
+        <Button key="warm" label={v.isKeepWarm ? 'Turn off keep warm' : 'Keep warm'} onPress={acts.warm!} />
       )}
-      <Button key="dismiss" label="Dismiss" onPress={acts.dismiss} />
+      <Button key="dismiss" label="Dismiss" onPress={acts.dismiss!} />
     </Box>
   )
 }

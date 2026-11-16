@@ -2,6 +2,9 @@
 import type { Beat, Bust, Step, Touch } from '../types'
 
 export const WRITE = 1.25 // cache write multiplier, 5-minute TTL
+export const WRITE_1H = 2 // cache write multiplier, 1-hour TTL
+/** What writing the cache costs, as a multiple of base input, for the TTL in use. */
+export const writeMult = (ttlMs: number): number => (ttlMs >= 3_600_000 ? WRITE_1H : WRITE)
 export const WARN_MS = 60_000 // toast, band and amber digits this long before expiry
 export const PING_LEAD_MS = 30_000 // a ping starts this long before expiry
 export const MAX_KEEP_MS = 2 * 3_600_000 // keep-warm ends after this long without a turn
@@ -25,8 +28,8 @@ export function intervalLabel(ttlMs: number): string {
 }
 export const readMult = (model: string): number => priceOf(model)?.read ?? 0.1
 /** Pings that cost no more than the one miss they avoid: (write - read) / read. */
-export const breakEven = (model: string): number =>
-  Math.max(1, Math.floor((WRITE - readMult(model)) / readMult(model) + 1e-9))
+export const breakEven = (model: string, ttlMs = 300_000): number =>
+  Math.max(1, Math.floor((writeMult(ttlMs) - readMult(model)) / readMult(model) + 1e-9))
 
 export const usd = (v: number): string => `$${v < 0.1 ? v.toFixed(3) : v.toFixed(2)}`
 export const shortModel = (m: string): string => m.replace(/^claude-/, '').replace(/-\d{8}$/, '')
@@ -67,6 +70,8 @@ export type View = {
   miss: number | null
   ping: number | null
   readMult: number
+  /** The write multiplier for the assumed TTL: what a miss re-sends the prefix at. */
+  write: number
   breakEven: number
   isKeepWarm: boolean
   pings: number
@@ -95,6 +100,7 @@ export function derive(g: Guard): View {
   const price = priceOf(model)
   const mode: Mode = g.billing === 'sub' ? 'sub' : price ? 'api' : 'unk'
   const r = readMult(model)
+  const w = writeMult(g.ttlMs)
   const tokens = t?.tokens ?? 0
   const leftMs = t ? g.ttlMs - (g.now - t.at) : 0
   const state: State = !g.isAvailable ? 'na' : !t ? 'empty' : leftMs <= 0 ? 'crit' : leftMs <= WARN_MS ? 'warn' : 'normal'
@@ -105,7 +111,7 @@ export function derive(g: Guard): View {
   }
   // Reads at the read multiplier, plus what the ping generated and sent uncached.
   const spent = price ? ((g.pingTokens * r + g.pingExtraTokens) / 1e6) * price.base : null
-  const miss = per(WRITE - r)
+  const miss = per(w - r)
   const net = miss !== null && spent !== null ? g.avoided * miss - spent : null
   const bustTokens = g.busts.reduce((n, b) => n + b.tokens, 0)
   const bustD = dollars(bustTokens)
@@ -120,7 +126,8 @@ export function derive(g: Guard): View {
     miss,
     ping: per(r),
     readMult: r,
-    breakEven: breakEven(model),
+    write: w,
+    breakEven: breakEven(model, g.ttlMs),
     isKeepWarm: g.isKeepWarm,
     pings: g.pings,
     totalPings: g.totalPings,
@@ -134,8 +141,8 @@ export function derive(g: Guard): View {
     beats: g.steps.map(s => s.beat),
     steps: g.steps,
     bustTokens,
-    bustCost: bustD === null ? null : bustD * (WRITE - r),
-    missPerToken: price ? (price.base / 1e6) * (WRITE - r) : null,
+    bustCost: bustD === null ? null : bustD * (w - r),
+    missPerToken: price ? (price.base / 1e6) * (w - r) : null,
     isDismissed: !!t && g.dismissedAt > 0 && g.dismissedAt === t.at,
     ttlMs: g.ttlMs,
     expiredMs: t ? Math.max(0, g.now - t.at - g.ttlMs) : 0,
@@ -162,7 +169,7 @@ export function toastText(v: View): string {
   if (v.mode === 'api') {
     return `Cache expires in ${v.clock}. After that, the next turn costs +${usd(v.miss ?? 0)} est. Keep warm pings it for ${usd(v.ping ?? 0)} est. each.`
   }
-  return `Cache expires in ${v.clock}. After that, the next turn re-sends the whole prefix at ${WRITE}x. Keep warm re-reads it at ${v.readMult}x each time.`
+  return `Cache expires in ${v.clock}. After that, the next turn re-sends the whole prefix at ${v.write}x. Keep warm re-reads it at ${v.readMult}x each time.`
 }
 
 const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x)
