@@ -108,72 +108,69 @@ function num(label: string, value: string, color?: string, el?: El) {
 function proposals(el: El, v: View, acts: Acts) {
   const { Box, Text, Button } = el
   if (v.props.length === 0) return empty(el, v)
+  const money = (t: number) => (isApi(v) ? ` · ${usd(t, v.price)}` : '')
   return (
     <Box flexDirection="column" gap={1}>
-      <Box justifyContent="space-between">
-        <Text bold>{v.props.length} proposal{v.props.length === 1 ? '' : 's'}</Text>
-        <Text dimColor>tokens per session, est.</Text>
-      </Box>
-      <Text dimColor>Saved is measured this session. Carry and net are estimates.</Text>
+      <Text dimColor>Claude repeated these this session. Each can become a one-line rule. Nothing changes until you choose.</Text>
       {v.props.map(p => {
         const open = p.id === v.openId
         const neg = p.netJit < 0
         return (
           <Box key={p.id} flexDirection="column" borderStyle="round" paddingX={1} gap={1}>
-            <Box gap={1}>
-              <Button key={`exp:${p.id}`} label={open ? '−' : '+'} onPress={act(acts, `exp:${p.id}`)} />
-              <Text dimColor>{GL[p.kind]}</Text>
-              <Text dimColor={neg} wrap="truncate">{p.text}</Text>
-            </Box>
-            <Box gap={3}>
-              {num('Seen', `${p.n}×`, undefined, el)}
-              {num('Saved', fkd(p.saved), undefined, el)}
-              {num('Carry', fkd(p.carryJit), undefined, el)}
-              {num('Net', `${sg(p.netJit)}${isApi(v) ? ` · ${usd(p.netJit, v.price)}` : ''}`, netColor(p.netJit), el)}
+            {/* What happened, what it is about, and whether a rule is worth it: readable without opening. */}
+            <Box gap={1} alignItems="flex-start">
+              <Box flexShrink={0}>
+                <Button key={`exp:${p.id}`} label={open ? '−' : '+'} onPress={act(acts, `exp:${p.id}`)} />
+              </Box>
+              <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
+                <Text bold dimColor={neg} wrap="truncate-end">{GL[p.kind]?.split(' ')[0]} {p.title}</Text>
+                <Text dimColor wrap="truncate-end">{[p.subject, p.where].filter(Boolean).join(' · ')}</Text>
+              </Box>
+              <Box flexDirection="column" alignItems="flex-end" flexShrink={0}>
+                <Text bold color={netColor(p.netJit)}>{sg(p.netJit)}</Text>
+                <Text dimColor>{neg ? 'costs more than it saves' : 'tokens saved, est.'}</Text>
+              </Box>
             </Box>
             {open && (
               <Box flexDirection="column" gap={1}>
+                <Text>{p.why}</Text>
                 <Box flexDirection="column" borderStyle="round" paddingX={1}>
-                  <Text dimColor>Rule</Text>
+                  <Text dimColor bold>Suggested rule</Text>
                   <Text>{p.text}</Text>
                 </Box>
-                <Box flexDirection="column">
-                  <Text bold>Why</Text>
-                  <Text>{p.why}</Text>
+                <Box gap={3}>
+                  {num('Wasted this session', `${fkd(p.saved)} tokens`, undefined, el)}
+                  {num('The rule costs', `${fkd(p.carryJit)} tokens`, undefined, el)}
+                  {num('Worth it', `${neg ? 'No' : 'Yes'}, ${sg(p.netJit)}${money(p.netJit)}`, netColor(p.netJit), el)}
                 </Box>
+                <Text dimColor>Wasted is measured; the rule's cost and the difference are estimates, per session.</Text>
                 <Box flexDirection="column">
-                  <Text bold>Evidence <Text dimColor>· {p.turns ? `turns ${p.turns}` : p.kl}</Text></Text>
+                  <Text bold>What happened <Text dimColor>· {p.n}× {p.turns ? `in turn${p.turns.includes(',') ? 's' : ''} ${p.turns}` : ''}</Text></Text>
                   {p.ev.slice(0, 3).map((e, i) => (
-                    <Text key={`ev${i}`} dimColor wrap="truncate">{e}</Text>
+                    <Text key={`ev${i}`} dimColor wrap="truncate-end">{e}</Text>
                   ))}
                   {p.n > p.ev.length && <Text dimColor>+ {p.n - p.ev.length} more like these</Text>}
                 </Box>
-                <Text bold>Deliver as</Text>
+                <Text bold>Add the rule</Text>
                 <Box flexDirection="column" gap={1}>
                   <Box flexDirection="column">
                     <Box gap={1}>
                       <Button key={`jit:${p.id}`} label="Just in time" onPress={act(acts, `jit:${p.id}`)} />
-                      <Text dimColor>carry {fkd(p.carryJit)} · net </Text>
-                      <Text bold color={netColor(p.netJit)}>{sg(p.netJit)}</Text>
                       {!neg && <Text bold color="claude">Recommended</Text>}
                     </Box>
-                    <Text dimColor>Shown to the model when {p.matcher.label} runs: once a session, once more if it fails again.</Text>
+                    <Text dimColor>Shown to Claude only {p.scope}, at most twice a session. {fkd(p.carryJit)} tokens a session{money(p.carryJit)}.</Text>
                   </Box>
                   <Box flexDirection="column">
-                    <Box gap={1}>
-                      <Button key={`alw:${p.id}`} label="Always on" onPress={act(acts, `alw:${p.id}`)} />
-                      <Text dimColor>carry {fkd(p.carryAlways)} · net </Text>
-                      <Text bold color={netColor(p.netAlways)}>{sg(p.netAlways)}</Text>
-                    </Box>
-                    <Text dimColor>Written to CLAUDE.local.md. Read every turn.</Text>
+                    <Button key={`alw:${p.id}`} label="Always on" onPress={act(acts, `alw:${p.id}`)} />
+                    <Text dimColor>Written to CLAUDE.local.md and read every turn. {fkd(p.carryAlways)} tokens a session{money(p.carryAlways)}.</Text>
                   </Box>
                 </Box>
-                {neg && <Text color="warning">Costs more than it saves at this session's rate (est.). Dismiss is probably right.</Text>}
+                {neg && <Text color="warning">This rule would cost more than the repeats it prevents. Dismissing it is probably right.</Text>}
                 <Box gap={1}>
-                  <Button key={`dis:${p.id}`} label="Dismiss" onPress={act(acts, `dis:${p.id}`)} />
-                  <Button key={`pol:${p.id}`} label="Polish wording" onPress={act(acts, `pol:${p.id}`)} />
+                  <Button key={`dis:${p.id}`} label="Not useful, dismiss" onPress={act(acts, `dis:${p.id}`)} />
+                  <Button key={`pol:${p.id}`} label="Reword with Claude" onPress={act(acts, `pol:${p.id}`)} />
                 </Box>
-                <Text dimColor>Only Polish wording sends anything: the rule and its evidence, to the model. Otherwise nothing leaves this machine.</Text>
+                <Text dimColor>Rewording sends the rule and this evidence to Claude. Nothing else leaves your machine.</Text>
               </Box>
             )}
           </Box>
@@ -379,7 +376,7 @@ function confirmDesktop(el: El, v: View, acts: Acts) {
   if (u.view === 'polish' && p)
     return (
       <Box flexDirection="column" gap={1}>
-        <Text bold>Polish wording</Text>
+        <Text bold>Reword with Claude</Text>
         <Text>Sends the rule text and its {Math.min(3, p.ev.length)} evidence lines to the model to tighten the wording. Nothing else from this session is sent.</Text>
         <Box gap={1}>
           <Button key="send" label="[ Send ]" onPress={act(acts, "send")} />
@@ -391,7 +388,7 @@ function confirmDesktop(el: El, v: View, acts: Acts) {
   if (u.view === 'polished' && p)
     return (
       <Box flexDirection="column" gap={1}>
-        <Text bold>Polish wording <Text dimColor>· from the model</Text></Text>
+        <Text bold>Reword with Claude <Text dimColor>· from the model</Text></Text>
         <Box flexDirection="column" borderStyle="round" paddingX={1}>
           <Text dimColor>Yours</Text>
           <Text>{p.text}</Text>

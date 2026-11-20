@@ -116,60 +116,42 @@ export function lessonsPane(v: View, iw: number): Seg[][] {
   return out.map(l => fit(l, iw))
 }
 
-function metaLine(v: View, p: Proposal, iw: number): Seg[] {
-  const net = [S('net ', 'dim'), S(sg(p.netJit), p.netJit < 0 ? 'warn b' : 'ok b')]
-  const parts = (): Seg[][] => [[S(`${p.n}×`, 'fg')], [S('saved ', 'dim'), S(fkd(p.saved), 'fg')], [S('carry ', 'dim'), S(fkd(p.carryJit), 'fg')], net]
-  const join = (a: Seg[][], sep: string): Seg[] => {
-    const o: Seg[] = []
-    a.forEach((x, i) => {
-      if (i) o.push(S(sep, 'dim'))
-      o.push(...x)
-    })
-    return o
-  }
-  const cands = [
-    join([...parts(), ...(isApi(v) ? [[S(ap(p.netJit, v.price), 'dim')]] : [])], ' · '),
-    join(parts(), ' · '),
-    join(parts(), '  '),
-    join(parts(), ' '),
-  ]
-  return cands.find(c => len(c) <= iw - 6) ?? cands[3] ?? []
-}
-
 function deliver(v: View, p: Proposal, iw: number): Seg[][] {
   const neg = p.netJit < 0
-  const num = (c: number, n: number): Seg[] => [S(padL(fkd(c), 7), 'fg'), S(padL(sg(n), 9), n < 0 ? 'warn b' : 'ok b')]
+  const money = (t: number) => (isApi(v) ? ` (${ap(t, v.price)})` : '')
   const o: Seg[][] = []
-  o.push(lr([S('    Deliver as', 'fg b')], [S(padL('carry', 7), 'dim'), S(padL('net', 9), 'dim')], iw))
-  o.push(lr([S('    '), Bt('Just in time', `jit:${p.id}`, false, neg)], num(p.carryJit, p.netJit), iw))
-  o.push(...ind(6, wrap(`${neg ? '' : 'Recommended. '}Shown to the model when ${p.matcher.label} runs: once a session, once more if it fails again.`, iw - 6, 'dim')))
-  o.push(lr([S('    '), Bt('Always on', `alw:${p.id}`, false, p.netAlways < 0)], num(p.carryAlways, p.netAlways), iw))
-  o.push(...ind(6, wrap('Written to CLAUDE.local.md. Read every turn.', iw - 6, 'dim')))
-  if (isApi(v)) o.push(...ind(6, wrap(`net ≈ ${usd(p.netJit, v.price)} / ${usd(p.netAlways, v.price)} per session, est.`, iw - 6, 'dim')))
+  o.push([S('    Add the rule', 'fg b')])
+  o.push([S('    '), Bt('Just in time', `jit:${p.id}`, false, neg), ...(neg ? [] : [S('  recommended', 'accent')])])
+  o.push(...ind(6, wrap(`Shown to Claude only ${p.scope}, at most twice a session. ${fkd(p.carryJit)} tokens a session${money(p.carryJit)}.`, iw - 6, 'dim')))
+  o.push([S('    '), Bt('Always on', `alw:${p.id}`, false, p.netAlways < 0)])
+  o.push(...ind(6, wrap(`Written to CLAUDE.local.md and read every turn. ${fkd(p.carryAlways)} tokens a session${money(p.carryAlways)}.`, iw - 6, 'dim')))
   if (neg) {
     o.push([])
-    o.push(...ind(4, wrap("Costs more than it saves at this session's rate (est.). Dismiss is probably right.", iw - 4, 'warn')))
+    o.push(...ind(4, wrap('This rule would cost more than the repeats it prevents. Dismissing it is probably right.', iw - 4, 'warn')))
   }
   return o
 }
 
 function proposals(v: View, iw: number): Seg[][] {
   if (v.props.length === 0) return empty(v, iw)
-  const b: Seg[][] = [lr([S(`${v.props.length} proposal${v.props.length === 1 ? '' : 's'}`, 'fg b')], iw >= 50 ? [S('tokens per session, est.', 'dim')] : [S('per session', 'dim')], iw)]
-  b.push(...wrap('Saved is measured this session. Carry and net are estimates.', iw, 'dim'))
-  b.push([S('✕ failure  ↻ loop  ↩ correction', 'dim')], [])
+  const b: Seg[][] = [...wrap('Claude repeated these this session. Nothing changes until you choose.', iw, 'dim'), []]
   v.props.forEach((p, i) => {
     const open = p.id === v.openId
     const neg = p.netJit < 0
+    // What happened first, in plain words; the figure that says whether a rule is worth it on the right.
     const head: Seg[] = [Sm(open ? '−' : '+', `exp:${p.id}`), S(' '), S(GL[p.kind] ?? '', neg ? 'dim' : 'fg'), S(' ')]
-    b.push([...head, S(trunc(p.text, iw - len(head)), neg ? 'dim' : 'fg')])
-    b.push([S('      '), ...metaLine(v, p, iw)])
+    const net = [S(sg(p.netJit), neg ? 'warn b' : 'ok b')]
+    b.push(lr([...head, S(trunc(p.title, iw - len(head) - 9), neg ? 'dim b' : 'fg b')], net, iw))
+    b.push([S('      '), S(cut([p.subject, p.where].filter(Boolean).join(' · '), iw - 6), 'dim')])
     if (open) {
       b.push([])
-      b.push(...block(p.text, iw, 4, 'rule'))
-      b.push([S('    Why', 'fg b')])
       b.push(...ind(4, wrap(p.why, iw - 4, 'fg')))
-      b.push([S('    Evidence', 'fg b'), S(` · ${p.turns ? (p.n > 1 ? 'turns ' : 'turn ') + p.turns : p.kl}`, 'dim')])
+      b.push([])
+      b.push(...block(p.text, iw, 4, 'suggested rule'))
+      const stats: Seg[] = [S('    wasted ', 'dim'), S(fkd(p.saved), 'fg b'), S(' measured · rule costs ', 'dim'), S(fkd(p.carryJit), 'fg b'), S(' · worth it ', 'dim'), S(sg(p.netJit), neg ? 'warn b' : 'ok b')]
+      b.push(len(stats) <= iw ? stats : [S('    wasted ', 'dim'), S(fkd(p.saved), 'fg b'), S(' · costs ', 'dim'), S(fkd(p.carryJit), 'fg b'), S(' · net ', 'dim'), S(sg(p.netJit), neg ? 'warn b' : 'ok b')])
+      b.push([])
+      b.push([S(`    What happened`, 'fg b'), S(` · ${p.n}×${p.turns ? ` in turn${p.turns.includes(',') ? 's' : ''} ${p.turns}` : ''}`, 'dim')])
       // The same call repeated in one turn reads once, with a count.
       const evs: Array<[string, number]> = []
       for (const e of p.ev) {
@@ -182,8 +164,8 @@ function proposals(v: View, iw: number): Seg[][] {
       b.push([])
       b.push(...deliver(v, p, iw))
       b.push([])
-      b.push([S('    '), Bt('Dismiss', `dis:${p.id}`), S('  '), Bt('Polish wording', `pol:${p.id}`)])
-      b.push(...ind(4, wrap('Only Polish wording sends anything: the rule and its evidence, to the model. Otherwise nothing leaves this machine.', iw - 4, 'dim')))
+      b.push([S('    '), Bt('Not useful, dismiss', `dis:${p.id}`), S('  '), Bt('Reword with Claude', `pol:${p.id}`)])
+      b.push(...ind(4, wrap('Rewording sends the rule and this evidence to Claude. Nothing else leaves your machine.', iw - 4, 'dim')))
     }
     if (i < v.props.length - 1) b.push([])
   })
@@ -350,14 +332,14 @@ function confirmView(v: View, iw: number): Seg[][] | null {
   }
   if (u.view === 'polish' && p) {
     const tok = Math.ceil((p.text.length + p.ev.slice(0, 3).join('').length) / 4) + 60
-    b.push([S('Polish wording', 'fg b')], [])
+    b.push([S('Reword with Claude', 'fg b')], [])
     b.push(...wrap(`Sends the rule text and its ${Math.min(3, p.ev.length)} evidence lines to the model to tighten the wording. About ${tok} tokens${isApi(v) ? ` (${usd(tok, v.price)})` : ''}, est. Nothing else from this session is sent.`, iw, 'fg'), [])
     b.push([Bt('Send', 'send', true), S('  '), Bt('Cancel', 'back')])
     return b
   }
-  if (u.view === 'sending') return [[S('Polish wording', 'fg b')], [], [S('Asking the model…', 'dim')]]
+  if (u.view === 'sending') return [[S('Reword with Claude', 'fg b')], [], [S('Asking the model…', 'dim')]]
   if (u.view === 'polished' && p) {
-    b.push([S('Polish wording', 'fg b'), S(' · from the model', 'dim')], [])
+    b.push([S('Reword with Claude', 'fg b'), S(' · from the model', 'dim')], [])
     b.push(...block(p.text, iw, 0, 'yours'))
     b.push(...block(u.polished, iw, 0, 'polished'))
     b.push([])

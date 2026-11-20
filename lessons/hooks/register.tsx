@@ -47,7 +47,7 @@ import {
   wasLoop,
   wastedTokens,
 } from './model'
-import type { Cand, Entry, History, MemFile, Proposal } from './model'
+import type { Cand, Entry, History, MemFile, PatternState, Proposal } from './model'
 import { lessonsBandDesktop, lessonsPaneDesktop } from './desktop'
 import type { DesktopEl } from './desktop'
 import { lessonsBand, lessonsPane, row, toastText } from './terminal'
@@ -64,13 +64,20 @@ const uiAtom = atom({ plugin: 'lessons', key: 'ui' } as const, DEFAULT_UI)
 
 // Per session, in memory; a reload starts these over. What was approved lives in the store.
 const entries = new Map<string, Entry>()
-/** What links calls for the cross-call loops; module memory, so a reload starts these streaks over. */
-let patterns = newPatterns()
+/** What links calls for the cross-call loops, one per agent (the main conversation is ''): a subagent
+ * has its own context, so its reads and edits never continue another agent's loop. Module memory, so a
+ * reload starts these streaks over. */
+const patterns = new Map<string, PatternState>()
+const patternsFor = (agent: string) => {
+  let st = patterns.get(agent)
+  if (!st) patterns.set(agent, (st = newPatterns()))
+  return st
+}
 const shown = new Map<string, number>()
 const dismissed = new Set<string>()
 const kept = new Set<string>()
 const override = new Map<string, string>()
-const inflight = new Map<string, { tool: string; input: Record<string, unknown>; turn: number }>()
+const inflight = new Map<string, { tool: string; input: Record<string, unknown>; turn: number; agent?: string }>()
 const usedNow = new Set<string>()
 let rules: Rule[] = []
 let history: History = emptyHistory()
@@ -474,12 +481,13 @@ const TAB_IDS = [0, 1, 2, 3] as const
 
 // ---- tool tracking --------------------------------------------------------------------------------
 async function onCall($: EngineInterface, e: Record<string, unknown> & { tool: string }, ran: { text?: string; isError?: boolean; context?: readonly string[] }, turn: number) {
-  const { tool, tool_use_id: _id, consent: _c, agentId: _a, ...input } = e as Record<string, unknown> & { tool: string }
+  const { tool, tool_use_id: _id, consent: _c, agentId, ...input } = e as Record<string, unknown> & { tool: string }
+  const agent = typeof agentId === 'string' ? agentId : undefined
   const text = typeof ran.text === 'string' ? ran.text : ''
   const isError = ran.isError === true
-  const call = { tool, input, text, isError, at: await $.clock.now(), turn }
+  const call = { tool, input, text, isError, at: await $.clock.now(), turn, agent }
   const entry = track(entries, call)
-  const linked = trackPatterns(patterns, entries, call)
+  const linked = trackPatterns(patternsFor(agent ?? ''), entries, call)
 
   const key = keyOf(tool, input)
   if (tool.toLowerCase() === 'bash') {
@@ -571,7 +579,8 @@ export const register: Register = (on, options) => {
   })
 
   on('session.compact', async ($, e, next) => {
-    patternsCompacted(patterns, entries)
+    const agent = (e as { agentId?: string }).agentId ?? ''
+    patternsCompacted(patternsFor(agent), entries, agent || undefined)
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -591,7 +600,7 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     if (e.isAborted && inflight.size > 0) {
-      for (const c of inflight.values()) interrupted(entries, { tool: c.tool, input: c.input, at: 0, turn: c.turn })
+      for (const c of inflight.values()) interrupted(entries, { tool: c.tool, input: c.input, at: 0, turn: c.turn, agent: c.agent })
       inflight.clear()
       await saveSession($)
       await touch($)
@@ -605,8 +614,8 @@ export const register: Register = (on, options) => {
     const id = (e as { tool_use_id?: string }).tool_use_id ?? `${Math.random()}`
     try {
       turn = await $.session.turns()
-      const { tool, tool_use_id: _i, consent: _c, agentId: _a, ...input } = e as unknown as Record<string, unknown> & { tool: string }
-      inflight.set(id, { tool, input, turn })
+      const { tool, tool_use_id: _i, consent: _c, agentId, ...input } = e as unknown as Record<string, unknown> & { tool: string }
+      inflight.set(id, { tool, input, turn, agent: typeof agentId === 'string' ? agentId : undefined })
     } catch {
       // tracking is best effort
     }

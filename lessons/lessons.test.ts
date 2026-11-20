@@ -318,7 +318,7 @@ test('pane: a negative net dims the row and says dismiss', () => {
   const v = view()
   const neg = { ...v.props[0], netJit: -500, netAlways: -900 }
   const text = lessonsPane({ ...v, props: [neg], ui: { ...v.ui, open: neg.id } }, 56).map(l => l.map(s => s.t).join('')).join('\n')
-  expect(text.includes('Dismiss is probably right')).toBe(true)
+  expect(text.includes('Dismissing it is probably right')).toBe(true)
   expect(text.includes('−500')).toBe(true)
 })
 
@@ -332,10 +332,12 @@ test('pane: tabs and buttons are named actions', () => {
 test('the top proposal is open by default and says why', () => {
   const v = view()
   const text = lessonsPane(v, 56).map(l => l.map(s => s.t).join('')).join('\n')
-  expect(text.includes('Why')).toBe(true)
+  expect(text.includes('Failed the same way 3 times in a row')).toBe(true)
   expect(text.includes('failed 3 times in a row')).toBe(true)
+  expect(text.includes('Add the rule')).toBe(true)
   const none = lessonsPane({ ...v, openId: null }, 56).map(l => l.map(s => s.t).join('')).join('\n')
-  expect(none.includes('Deliver as')).toBe(false)
+  expect(none.includes('Add the rule')).toBe(false)
+  expect(none.includes('Failed the same way 3 times in a row')).toBe(true)
 })
 
 test('toast is one plain sentence', () => {
@@ -685,4 +687,43 @@ test('odd inputs: a MultiEdit with null entries, and a start marker with no end'
   const file = upsertBlock(`notes\n${BLOCK_START}\n- old`, ['new rule'])
   expect(file.split(BLOCK_START).length).toBe(2)
   expect(file.includes('notes')).toBe(true)
+})
+
+test('subagents reading the same file are not one agent re-reading it', () => {
+  const m = new Map<string, Entry>()
+  const sts = new Map<string, ReturnType<typeof newPatterns>>()
+  const go = (agent: string | undefined) => {
+    const c = { ...call('Read', { file_path: '/skills/deep-research/references/researcher.md' }), agent }
+    track(m, c)
+    const k = agent ?? ''
+    if (!sts.has(k)) sts.set(k, newPatterns())
+    return trackPatterns(sts.get(k)!, m, c)
+  }
+  for (const a of ['a1', 'a2', 'a3', 'a4', 'a5']) go(a)
+  expect([...m.values()].some(e => loopSize(e) > 0)).toBe(false)
+  // One agent reading it three times is still a loop.
+  go('a1'); go('a1')
+  expect([...m.values()].some(e => e.loop === 'reread' && loopSize(e) === 3)).toBe(true)
+})
+
+test('a proposal leads with a plain title and the file name, and its rule is never cut', () => {
+  const st = newPatterns()
+  const m = new Map<string, Entry>()
+  for (let i = 0; i < 5; i++) {
+    const c = call('Read', { file_path: '/home/someone/.config/App/skills/deep-research/references/researcher.md' }, 'x'.repeat(4000))
+    track(m, c)
+    trackPatterns(st, m, c)
+  }
+  const p = propose(m, new Set(), 60).find(x => x.kl === 're-read loop')!
+  expect(p.title).toBe('Read the same file 5 times')
+  expect(p.subject).toBe('researcher.md')
+  expect(p.where.startsWith('…/')).toBe(true)
+  expect(p.text).toBe("Don't re-read researcher.md unless it changed; use what was already read.")
+  expect(p.ev.every(l => !l.includes('/home/someone'))).toBe(true)
+  for (const w of [56, 72, 100]) {
+    const text = lessonsPane({ ...view(), props: [p], openId: p.id }, w).map(l => l.map(s => s.t).join('')).join('\n')
+    expect(text.includes('/home/someone')).toBe(false)
+    // The rule wraps inside its box at narrow widths, but every word of it is there.
+    expect(text.replace(/[│┌┐└┘─]/g, ' ').replace(/\s+/g, ' ').includes("use what was already read.")).toBe(true)
+  }
 })

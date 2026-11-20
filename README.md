@@ -107,31 +107,36 @@ A tool call gets at most one loop note, so overlapping loops don't stack, and a 
   - *Just in time:* the rule is shown to the model only when a matching tool call runs, at most twice a session. Cheapest.
   - *Always on:* the rule is written to `CLAUDE.local.md`, a personal memory file Claude Code reads every turn, between marker comments so Lessons can update it. Costs tokens every turn.
 
-  **Undo** works until your next message. **Dismiss** hides a proposal for good, in later sessions too.
+  **Undo** works until your next message. **Not useful, dismiss** hides a proposal for good, in later sessions too.
 - **Active:** accepted rules, how often each was shown, and whether the mistake came back anyway.
 - **Loops:** this session's loops, with the exact note the model received.
 - **Memory:** lines in the project's `CLAUDE.md` files that look stale (they name a path that no longer exists), never used, or in use, with what each costs per turn. **Remove** keeps a copy so you can undo it.
 
-`/lessons accept <id>` (add `always` for always-on) and `/lessons retire <id>` work without opening the panel. Both run only when you type them, never when the model or another plugin sends them. **Polish wording** asks a model to tighten a rule's wording; it is the only Lessons feature that sends anything to a model, and it asks first.
+`/lessons accept <id>` (add `always` for always-on) and `/lessons retire <id>` work without opening the panel. Both run only when you type them, never when the model or another plugin sends them. **Reword with Claude** asks a model to tighten a rule's wording; it is the only Lessons feature that sends anything to a model, and it asks first.
 
-Here is the Proposals tab after a short session, drawn by the mod's own renderer:
+Here is the Proposals tab after Claude re-read one file five times, drawn by the mod's own renderer:
 
 ```
 Lessons                                            subscription · tokens
 [ Proposals 2 ] [ Active 0 ] [ Loops 2 ] [ Memory 0 ]
 ────────────────────────────────────────────────────────────────────────
-[−] ↻ When several different commands fail with the same error, fix…
-      3× · saved 1.3k · carry 60 · net +1.2k
+Claude repeated these this session. Nothing changes until you choose.
 
-    ┌ rule ────────────────────────────────────────────────────────────┐
-    │ When several different commands fail with the same error, fix    │
-    │ what the error names instead of trying another command.          │
+[−] ↻ Read the same file 5 times                                   +4.4k
+      researcher.md · …/skills/deep-research/references · turn 1
+
+    Claude read researcher.md 5 times and it never changed in between.
+    Every read after the first re-sent about 1.1k tokens it already had.
+
+    ┌ suggested rule ──────────────────────────────────────────────────┐
+    │ Don't re-read researcher.md unless it changed; use what was      │
+    │ already read.                                                    │
     └──────────────────────────────────────────────────────────────────┘
-    Why
-    "src/api/user.ts(41,7): error TS2322: Type 'string' is not
-    assignable to type 'number'." came back 3× from 3 different
-    commands. That is about 1,250 tokens of output you paid for more
-    than once.
+    wasted 4.4k measured · rule costs 38 · worth it +4.4k
+
+    What happened · 5× in turn 1
+    t1  Read  …/deep-research/references/researcher.md  → unchanged  ×3
+    + 2 more like these
 ```
 
 **Try it:** in any project, ask Claude:
@@ -171,7 +176,7 @@ Each mod has a few options. Set them in `~/.claude/settings.json` under `pluginC
 
 ## Privacy
 
-- **Nothing leaves your machine** except the model requests you turn on: Cache Guard's keep-warm pings, and Lessons' **Polish wording**, which sends only the rule and its evidence after you confirm.
+- **Nothing leaves your machine** except the model requests you turn on: Cache Guard's keep-warm pings, and Lessons' **Reword with Claude**, which sends only the rule and its evidence after you confirm.
 - **What is stored, and where.** Each mod keeps its data in Claude Code's local plugin store on your computer:
   - Context Lens and Cache Guard: counters, and a short event log of counts and durations. They never store prompt or file content.
   - Lessons, per project: this session's tracked calls (each command or file path, cut to 300 characters, and the first line of any error, with anything that looks like a password, token or API key masked; never file contents), accepted and dismissed rules, and the first word of each command and the folders of files it saw. It uses those to tell whether a `CLAUDE.md` line is still used.
