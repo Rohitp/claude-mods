@@ -7,7 +7,7 @@ import type { DesktopEl } from './desktop'
 import { dur, fit } from './layout'
 import { formatLine } from './log'
 import type { Field, Level } from './log'
-import { MAX_KEEP_MS, PING_LEAD_MS, breakEven, derive, sanitizeGuard, statusText, toastText } from './model'
+import { MAX_KEEP_MS, PING_LEAD_MS, derive, readMult, sanitizeGuard, statusText, toastText, writeMult } from './model'
 import type { Guard, View } from './model'
 import { addGap, bump, emptyStats, note, sanitizeStats, summarize } from './stats'
 import type { Stats } from './stats'
@@ -110,7 +110,15 @@ async function load($: EngineInterface): Promise<Guard> {
   return clean
 }
 
-async function stopKeepWarm($: EngineInterface, reason: 'breakeven' | 'idle' | 'lapsed', why: string) {
+/** What this run of pings has cost, in base-input tokens, so keep-warm stops before it outspends the miss. */
+let streakSpend = 0
+
+async function resetPings($: EngineInterface) {
+  streakSpend = 0
+  await update($, pingsAtom, () => 0)
+}
+
+async function stopKeepWarm($: EngineInterface, reason: 'breakeven' | 'idle' | 'lapsed' | 'failed', why: string) {
   await update($, keepAtom, () => false)
   count(`keep.stop.${reason}`)
   log($, 'info', 'keep.stop', { reason })
@@ -127,6 +135,8 @@ async function ping($: EngineInterface) {
     if (!('usage' in r)) {
       count('ping.error')
       log($, 'warn', 'ping.none', { reason: r.reason })
+      // A failed ping is not retried: the timer would send another every second until expiry.
+      await stopKeepWarm($, 'failed', "a keep-alive ping couldn't be sent")
       return
     }
     const u = r.usage
@@ -136,6 +146,7 @@ async function ping($: EngineInterface) {
     if (!r.isAnswered) {
       count('ping.error')
       log($, 'warn', 'ping.failed', { reason: r.reason, ms, read: hit })
+      await stopKeepWarm($, 'failed', "a keep-alive ping wasn't answered")
       return
     }
     if (touch && hit >= touch.tokens * 0.5) {
@@ -148,7 +159,14 @@ async function ping($: EngineInterface) {
       count('ping.ok')
       count('ping.read', hit)
       log($, 'info', 'ping.ok', { read: hit, out: u.output_tokens, in: u.input_tokens, ms, n })
-      if (n >= breakEven(touch.model, await read($, ttlAtom))) {
+      // Everything a ping costs: the cache read, any uncached input, and its output (a fork thinks
+      // as hard as the session does), against what one miss would re-send.
+      const ttl = await read($, ttlAtom)
+      const r = readMult(touch.model)
+      const cost = hit * r + u.input_tokens + u.cache_creation_input_tokens * writeMult(ttl) + 5 * u.output_tokens
+      streakSpend += cost
+      const miss = touch.tokens * (writeMult(ttl) - r)
+      if (streakSpend + cost > miss) {
         await stopKeepWarm($, 'breakeven', `another ping would cost more than the miss it avoids (${n} in a row)`)
       }
     } else {
@@ -159,6 +177,7 @@ async function ping($: EngineInterface) {
   } catch (err) {
     count('ping.error')
     log($, 'error', 'ping.threw', { name: err instanceof Error ? err.name : 'unknown' })
+    await stopKeepWarm($, 'failed', 'a keep-alive ping failed').catch(() => {})
   } finally {
     isPinging = false
   }
@@ -311,7 +330,8 @@ export const register: Register = (on, options) => {
         await update($, bustsAtom, v => [...v, bust].slice(-20))
         count(`bust.${kind}`, 1, { t: startedAt, k: 'bust', d: { kind: kind!, tokens: u.cache_creation_input_tokens, gapMs: gap } })
         log($, 'info', 'bust', { kind, tokens: u.cache_creation_input_tokens, gapMs: gap, prev: prev.tokens })
-      } else if (isHit && pingsBefore > 0) {
+      } else if (isHit && pingsBefore > 0 && startedAt - (await read($, lastTurnAtom)) > (await read($, ttlAtom))) {
+        // Only a return after the cache would have expired without the pings is a miss avoided.
         await update($, avoidedAtom, v => v + 1)
         count('avoided')
         log($, 'info', 'avoided', { pings: pingsBefore, gapMs: gap })
@@ -320,7 +340,7 @@ export const register: Register = (on, options) => {
     await pushStep(stepNote)
     await update($, touchAtom, () => ({ at: startedAt, tokens: cached, model: e.model, effort }))
     await update($, lastTurnAtom, () => startedAt)
-    await update($, pingsAtom, () => 0)
+    await resetPings($)
     return r
   })
 
@@ -329,10 +349,10 @@ export const register: Register = (on, options) => {
     if (arg === 'warm') {
       const isOn = !(await read($, keepAtom))
       await update($, keepAtom, () => isOn)
-      await update($, pingsAtom, () => 0)
+      await resetPings($)
       if (isOn) count('keep.on')
       log($, 'info', 'keep.toggle', { on: isOn, via: 'command' })
-      return { text: isOn ? 'Keep warm on: it pings 30s before expiry, until you turn it off.' : 'Keep warm off.' }
+      return { text: isOn ? 'Keep warm on: it pings 30s before expiry. It stops by itself when another ping would cost more than a miss, after 2 hours without a turn, or if a ping fails.' : 'Keep warm off.' }
     }
     if (arg === '5m' || arg === '1h') {
       await update($, ttlAtom, () => (arg === '1h' ? 3_600_000 : 300_000))
@@ -366,7 +386,7 @@ export const register: Register = (on, options) => {
         warm: async () => {
           const isOn = !(await read($, keepAtom))
           await update($, keepAtom, () => isOn)
-          await update($, pingsAtom, () => 0)
+          await resetPings($)
           if (isOn) count('keep.on')
           log($, 'info', 'keep.toggle', { on: isOn, via: 'pane' })
         },
@@ -408,7 +428,7 @@ export const register: Register = (on, options) => {
         warm: async () => {
           const isOn = !(await read($, keepAtom))
           await update($, keepAtom, () => isOn)
-          await update($, pingsAtom, () => 0)
+          await resetPings($)
           if (isOn) count('keep.on')
           log($, 'info', 'keep.toggle', { on: isOn, via: 'band' })
         },

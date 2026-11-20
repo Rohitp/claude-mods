@@ -388,9 +388,9 @@ function confirmView(v: View, iw: number): Seg[][] | null {
 }
 
 // ---- toast ---------------------------------------------------------------------------------------
-export function toastText(call: string, what: string, wasted: number, price: number | null, mode: 'api' | 'sub'): string {
+export function toastText(call: string, what: string, wasted: number, price: number | null, mode: 'api' | 'sub', isNoted = true): string {
   const w = mode === 'api' && price !== null ? `${fkd(wasted)} wasted, est., ~${usd(wasted, price)}` : `${fkd(wasted)} tokens wasted, est.`
-  return `Caught a loop: ${call} ${what} (${w}). Added a one-line note to the model's next turn. Details in /lessons.`
+  return `Caught a loop: ${call} ${what} (${w}).${isNoted ? " Added a one-line note to the model's next turn." : ''} Details in /lessons.`
 }
 
 // ---- row ------------------------------------------------------------------------------------------

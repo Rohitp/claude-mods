@@ -197,22 +197,31 @@ export function cacheBandDesktop(el: El, v: View, acts: Acts) {
       : v.mode === 'api'
         ? `Then a miss costs +${usd(v.miss ?? 0)} est. A ping costs ${usd(v.ping ?? 0)}.`
         : `Then the next turn re-sends ${fk(v.tokens)} at ${v.write}x.`
+  // Only the explanation may shrink, cut with an ellipsis; the bar, the title and the buttons stay whole.
   return (
-    <Box gap={2} alignItems="center" borderStyle="round" paddingX={1}>
-      <Svg
-        source={miniBarSvg(isCold ? 0 : v.leftMs / 60000, hex(v), 48, 6)}
-        alt={isCold ? 'Cache cold' : `Cache expires in ${v.clock}`}
-        width={48}
-        height={6}
-      />
-      <Text bold color={roleColor(v)}>{isCold ? 'Cache is cold' : `Cache expires in ${v.clock}`}</Text>
-      <Text dimColor wrap="truncate">{body}</Text>
-      {isCold ? (
-        <Button key="compact" label="Compact now" onPress={acts.compact!} />
-      ) : (
-        <Button key="warm" label={v.isKeepWarm ? 'Turn off keep warm' : 'Keep warm'} onPress={acts.warm!} />
-      )}
-      <Button key="dismiss" label="Dismiss" onPress={acts.dismiss!} />
+    <Box gap={2} alignItems="center" borderStyle="round" paddingX={1} flexWrap="nowrap">
+      <Box flexShrink={0}>
+        <Svg
+          source={miniBarSvg(isCold ? 0 : v.leftMs / 60000, hex(v), 48, 6)}
+          alt={isCold ? 'Cache cold' : `Cache expires in ${v.clock}`}
+          width={48}
+          height={6}
+        />
+      </Box>
+      <Box flexShrink={0}>
+        <Text bold color={roleColor(v)}>{isCold ? 'Cache is cold' : `Cache expires in ${v.clock}`}</Text>
+      </Box>
+      <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
+        <Text dimColor wrap="truncate-end">{body}</Text>
+      </Box>
+      <Box flexShrink={0} gap={1}>
+        {isCold ? (
+          <Button key="compact" label="Compact now" onPress={acts.compact!} />
+        ) : (
+          <Button key="warm" label={v.isKeepWarm ? 'Turn off keep warm' : 'Keep warm'} onPress={acts.warm!} />
+        )}
+        <Button key="dismiss" label="Dismiss" onPress={acts.dismiss!} />
+      </Box>
     </Box>
   )
 }

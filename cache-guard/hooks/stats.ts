@@ -50,7 +50,7 @@ export function summarize(s: Stats, ttlMs: number, now: number): string[] {
       `Ping tokens: ${c('ping.read')} read · ${c('ping.in')} uncached in · ${c('ping.out')} out (avg ${Math.round(c('ping.out') / Math.max(1, c('ping.ok')))} out per ping)`,
     )
   }
-  out.push(`Misses avoided ${c('avoided')} · keep warm on ${c('keep.on')}× · stopped: break-even ${c('keep.stop.breakeven')}, idle ${c('keep.stop.idle')}, lapsed ${c('keep.stop.lapsed')}`)
+  out.push(`Misses avoided ${c('avoided')} · keep warm on ${c('keep.on')}× · stopped: break-even ${c('keep.stop.breakeven')}, idle ${c('keep.stop.idle')}, lapsed ${c('keep.stop.lapsed')}, failed ${c('keep.stop.failed')}`)
   out.push(`Warnings shown ${c('toast')} · bands ${c('band.shown')} · dismissed ${c('band.dismiss')} · compact clicks ${c('compact.click')}`)
   if (c('state.repaired') || c('render.error')) {
     out.push(`Problems: ${c('state.repaired')} repaired state, ${c('render.error')} render errors`)

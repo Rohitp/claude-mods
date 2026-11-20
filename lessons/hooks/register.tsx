@@ -13,6 +13,7 @@ import {
   isRepoPath,
   keyOf,
   callOf,
+  commandCore,
   liveHint,
   loopPhrase,
   newPatterns,
@@ -24,6 +25,8 @@ import {
   matcherFor,
   matches,
   memoryCandidates,
+  linesStill,
+  memFilesFrom,
   missKey,
   priceOf,
   propose,
@@ -39,6 +42,7 @@ import {
   tokensOf,
   track,
   turnsPerSession,
+  oneLine,
   upsertBlock,
   wasLoop,
   wastedTokens,
@@ -71,10 +75,15 @@ const usedNow = new Set<string>()
 let rules: Rule[] = []
 let history: History = emptyHistory()
 let projKey = ''
-let isLoaded = false
+/** The one load in flight or done; cleared if it fails, so the next hook tries again. */
+let loading: Promise<void> | null = null
+/** Rules retired in this session, so merging with another session's save doesn't bring them back. */
+const retired = new Set<string>()
+/** Rule ids as last read from the store: one gone from there since was retired by another session. */
+const fromStore = new Set<string>()
 let isLive = true
 let billing: 'api' | 'sub' = 'api'
-let undo: { kind: 'rule' | 'dismiss' | 'retire' | 'remove' | 'keep'; id: string; rule?: Rule; path?: string; from?: number; lines?: string[] } | null = null
+let undo: { kind: 'rule' | 'dismiss' | 'retire' | 'remove' | 'keep'; id: string; rule?: Rule; path?: string; from?: number; lines?: string[]; after?: string } | null = null
 let signature = ''
 let mem: { at: number; files: MemFile[]; cands: Cand[]; inUse: Cand[]; tokens: number } | null = null
 
@@ -96,10 +105,17 @@ async function touch($: EngineInterface) {
 /** Loads the project's rules, history and the session's tracked calls once; every hook calls it, so
  * a hot reload that does not raise `session.start` still comes back with its state. */
 async function ensureLoaded($: EngineInterface) {
-  if (isLoaded) return
-  isLoaded = true
+  loading ??= load($).catch(err => {
+    loading = null
+    throw err
+  })
+  return loading
+}
+
+async function load($: EngineInterface) {
   projKey = idOf(await $.session.root())
   rules = sanitizeRules(await $.store.get(`rules:${projKey}`))
+  for (const r of rules) fromStore.add(r.id)
   history = sanitizeHistory(await $.store.get(`history:${projKey}`))
   for (const k of history.kept) kept.add(k)
   for (const k of history.dismissed) dismissed.add(k)
@@ -111,7 +127,20 @@ async function ensureLoaded($: EngineInterface) {
   log($, 'loaded', { rules: rules.length, sessions: history.sessions, restored: entries.size })
 }
 
+/** Another session in this project may have accepted or retired rules since this one loaded: take
+ * theirs, keep ours, and drop what this session retired. */
+async function mergeRules($: EngineInterface) {
+  const stored = sanitizeRules(await $.store.get(`rules:${projKey}`))
+  const there = new Set(stored.map(r => r.id))
+  rules = rules.filter(r => there.has(r.id) || !fromStore.has(r.id))
+  const mine = new Set(rules.map(r => r.id))
+  rules = [...rules, ...stored.filter(r => !mine.has(r.id) && !retired.has(r.id))]
+  fromStore.clear()
+  for (const r of rules) if (there.has(r.id)) fromStore.add(r.id)
+}
+
 async function save($: EngineInterface) {
+  await mergeRules($)
   await $.store.set(`rules:${projKey}`, rules)
   await $.store.set(`history:${projKey}`, { ...history, kept: [...kept].slice(-100), dismissed: [...dismissed].slice(-200) })
 }
@@ -131,6 +160,7 @@ async function readText($: EngineInterface, path: string): Promise<string | null
 
 /** Rewrites only the marked block of CLAUDE.local.md; returns the path. */
 async function syncFile($: EngineInterface): Promise<string> {
+  await mergeRules($)
   const path = await localPath($)
   const old = (await readText($, path)) ?? ''
   const always = rules.filter(r => r.mode === 'always').map(r => r.text)
@@ -143,9 +173,10 @@ async function syncFile($: EngineInterface): Promise<string> {
 async function loadMemory($: EngineInterface, force = false) {
   const now = await $.clock.now()
   if (!force && mem && now - mem.at < MEM_TTL_MS) return mem
-  const found = await $.fs.ancestors({ names: MEM_NAMES })
-  const files: MemFile[] = found.map(f => ({ name: f.name, content: f.content, dir: f.dir }))
   const root = await $.session.root()
+  // Only files inside the project, each with its own text: `content` would add what its @-imports bring.
+  const found = await $.fs.ancestors({ names: MEM_NAMES, below: root })
+  const files: MemFile[] = memFilesFrom(found, root)
   const cwd = await $.session.cwd()
   const missing = new Set<string>()
   let checked = 0
@@ -267,6 +298,7 @@ async function accept($: EngineInterface, p: Proposal, mode: 'jit' | 'always'): 
     }
   } else rules = [...rules.filter(r => r.id !== rule.id), rule]
   await save($)
+  retired.delete(rule.id)
   undo = { kind: 'rule', id: rule.id, rule }
   mem = null
   return where
@@ -291,6 +323,7 @@ async function doUndo($: EngineInterface) {
   undo = null
   if (u.kind === 'rule' && u.rule) {
     rules = rules.filter(r => r.id !== u.id)
+    retired.add(u.id)
     if (u.rule.mode === 'always') await syncFile($)
     await save($)
     await setUi($, { view: 'list', tab: 0, open: u.id, msg: '' })
@@ -299,14 +332,18 @@ async function doUndo($: EngineInterface) {
     await save($)
     await setUi($, { view: 'list', tab: 0, open: u.id, msg: '' })
   } else if (u.kind === 'retire' && u.rule) {
+    retired.delete(u.id)
+    fromStore.delete(u.id)
     rules = [...rules, u.rule]
     if (u.rule.mode === 'always') await syncFile($)
     await save($)
     await setUi($, { view: 'list', tab: 1, msg: '' })
   } else if (u.kind === 'remove' && u.path && u.lines && u.from) {
     const cur = (await readText($, u.path)) ?? ''
-    await $.fs.write(u.path, restoreLines(cur, u.from, u.lines))
     mem = null
+    // Put the lines back only where they came from: an edit since would move them.
+    if (u.after !== undefined && cur !== u.after) return setUi($, { view: 'list', tab: 3, msg: 'The file changed since; the lines were not put back.' })
+    await $.fs.write(u.path, restoreLines(cur, u.from, u.lines))
     await setUi($, { view: 'list', tab: 3, msg: '' })
   } else if (u.kind === 'keep') {
     kept.delete(u.id)
@@ -328,7 +365,7 @@ async function doPolish($: EngineInterface) {
   })
   if (r.isAnswered && r.text.trim()) {
     log($, 'polish', { ok: true, out: r.usage.output_tokens })
-    await setUi($, { view: 'polished', polished: r.text.trim().slice(0, 200) })
+    await setUi($, { view: 'polished', polished: oneLine(r.text).slice(0, 200) })
   } else {
     log($, 'polish', { ok: false })
     await setUi($, { view: 'list', msg: "Couldn't polish. Your wording is unchanged." })
@@ -341,15 +378,19 @@ async function doRemove($: EngineInterface) {
   if (!r) return setUi($, { view: 'list' })
   const m = await loadMemory($)
   const f = m.files.find(x => x.name === r.file)
-  if (!f) return setUi($, { view: 'list' })
-  const found = await $.fs.ancestors({ names: [r.file] })
-  const target = found.find(x => x.name === r.file)
-  if (!target) return setUi($, { view: 'list' })
-  const path = `${target.dir.replace(/\/$/, '')}/${r.file}`
+  const root = (await $.session.root()).replace(/\/$/, '')
+  if (!f?.path || !f.path.startsWith(root + '/')) return setUi($, { view: 'list' })
+  const path = f.path
   try {
-    const { next, removed } = removeLines(target.content, r.from, r.to)
+    // Remove only what was shown: if the file changed since, the lines may have moved.
+    const cur = (await readText($, path)) ?? ''
+    if (!linesStill(cur, r.from, r.to, r.lines)) {
+      mem = null
+      return setUi($, { view: 'list', tab: 3, msg: `${r.file} changed since it was checked. Nothing was removed; look again.` })
+    }
+    const { next, removed } = removeLines(cur, r.from, r.to)
     await $.fs.write(path, next)
-    undo = { kind: 'remove', id: v.ui.id, path, from: r.from, lines: removed }
+    undo = { kind: 'remove', id: v.ui.id, path, from: r.from, lines: removed, after: next }
     mem = null
     log($, 'remove', { lines: removed.length })
     await setUi($, { view: 'list', tab: 3, msg: `Removed ${r.file}:${r.from}${r.to > r.from ? '–' + r.to : ''}. Takes effect next turn.` })
@@ -379,6 +420,7 @@ function actionsFor($: EngineInterface, v: View, openPane: () => void): Acts {
       const r = rules.find(x => x.id === v.ui.id)
       if (!r) return void setUi($, { view: 'list' })
       rules = rules.filter(x => x.id !== r.id)
+      retired.add(r.id)
       undo = { kind: 'retire', id: r.id, rule: r }
       void (async () => {
         if (r.mode === 'always') await syncFile($)
@@ -440,9 +482,13 @@ async function onCall($: EngineInterface, e: Record<string, unknown> & { tool: s
   const linked = trackPatterns(patterns, entries, call)
 
   const key = keyOf(tool, input)
-  const first = (key.split(/\s+/)[0] ?? '').replace(/^.*\//, '')
-  if (tool.toLowerCase() === 'bash' && first) usedNow.add(first)
-  else if (key.includes('/')) {
+  if (tool.toLowerCase() === 'bash') {
+    // Every step of `cd x && npm test | tee log` counts as used, not only the `cd`.
+    for (const seg of key.split(/&&|\|\||;|\|/)) {
+      const w = (commandCore(seg).split(/\s+/)[0] ?? '').replace(/^.*\//, '')
+      if (w && w !== 'cd') usedNow.add(w)
+    }
+  } else if (key.includes('/')) {
     const parts = key.replace(/^\.\//, '').split('/')
     for (let i = 1; i <= Math.min(3, parts.length); i++) usedNow.add(parts.slice(0, i).join('/'))
     usedNow.add(key.replace(/^\.\//, ''))
@@ -451,7 +497,8 @@ async function onCall($: EngineInterface, e: Record<string, unknown> & { tool: s
   const notes: string[] = []
   for (const rule of rules) {
     if (!matches({ tools: rule.tools.length ? rule.tools : [rule.tool], prefix: rule.prefix, label: rule.matcher }, tool, key)) continue
-    if (isError) rule.recurred++
+    // A recurrence is the same mistake again, not any failure of a matching call.
+    if (isError && (rule.sig === entry.sig || linked.some(x => x.sig === rule.sig))) rule.recurred++
     const times = shown.get(rule.id) ?? 0
     if (rule.mode === 'jit' && times < JIT_SHOWS && (times === 0 || isError)) {
       shown.set(rule.id, times + 1)
@@ -459,19 +506,22 @@ async function onCall($: EngineInterface, e: Record<string, unknown> & { tool: s
       notes.push(`Lessons: ${rule.text}`)
     }
   }
-  // One nudge per call: the per-command loop first, then whichever cross-call loop is due.
-  const due = isLive ? [entry, ...linked].filter(x => !rules.some(r => r.sig === x.sig) && shouldHint(x)) : []
+  // One loop note per call: the per-command loop first, then whichever cross-call loop is due.
+  // With liveHints off the loop is still recorded and shown to the person; only the note is left out.
+  const due = [entry, ...linked].filter(x => !rules.some(r => r.sig === x.sig) && shouldHint(x))
   const pick = due[0]
   if (pick) {
     const wasFirst = pick.hinted === 0
     for (const x of due) x.hinted = Math.max(x.hinted, loopSize(x))
     const hint = liveHint(pick)
-    pick.note = hint
-    notes.push(hint)
+    if (isLive) {
+      pick.note = hint
+      notes.push(hint)
+    }
     log($, 'hint', { tool, kind: pick.loop ?? 'call', wasted: wastedTokens(pick), n: pick.hinted })
     if (wasFirst) {
       const model = await $.session.model()
-      $.ui.toast(toastText(callOf(pick).slice(0, 48), loopPhrase(pick, loopSize(pick)), wastedTokens(pick), priceOf(model), billing))
+      $.ui.toast(toastText(callOf(pick).slice(0, 48), loopPhrase(pick, loopSize(pick)), wastedTokens(pick), priceOf(model), billing, isLive))
     }
   }
   if (notes.length) void save($)
@@ -576,6 +626,9 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'lessons' }, async ($, e) => {
     await ensureLoaded($)
     const [verb, id, how] = e.args.trim().split(/\s+/)
+    // Accepting and retiring change files the model reads: only from the person's own keyboard or app.
+    const isPerson = e.origin.kind === 'composer' || e.origin.kind === 'bridge'
+    if ((verb === 'accept' || verb === 'retire') && id && !isPerson) return { text: `/lessons ${verb} runs only when you type it.` }
     if (verb === 'accept' && id) {
       const v = await buildView($)
       const p = v.props.find(x => x.id === id)
@@ -592,6 +645,7 @@ export const register: Register = (on, options) => {
       const r = rules.find(x => x.id === id)
       if (!r) return { text: `No active rule ${id}.` }
       rules = rules.filter(x => x.id !== id)
+      retired.add(id)
       if (r.mode === 'always') await syncFile($)
       await save($)
       await touch($)

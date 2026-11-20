@@ -48,6 +48,8 @@ export type Entry = {
   loop?: LoopKind
   /** Length of that loop now; 0 once it has been broken. */
   streak: number
+  /** The loop went quiet: no new step for a while. The next call of it wakes it. */
+  quiet?: boolean
 }
 
 export type LoopKind = 'cross' | 'undo' | 'retest' | 'reread'
@@ -68,25 +70,37 @@ const PAGE =
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '')
 
+/** Masks what looks like a credential before anything is kept or shown: header values, key=value
+ * secrets, and well-known key prefixes. Applied to commands, inputs and error lines alike. */
+export function redact(s: string): string {
+  return s
+    .replace(/\b(authorization|bearer|token|password|passwd|pwd|secret|api[_-]?key|access[_-]?key|client[_-]?secret|x-api-key)(\s*[:=]\s*|\s+)(["']?)(?:bearer\s+|basic\s+)?[^\s"'&]{4,}/gi, '$1$2$3***')
+    .replace(/\b(?:sk|pk|rk)-[A-Za-z0-9_-]{8,}|\bgh[pousr]_[A-Za-z0-9]{12,}|\bxox[abposr]-[A-Za-z0-9-]{8,}|\bAKIA[0-9A-Z]{12,}|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9._-]{10,}/g, '***')
+    .replace(/(\/\/[^\s:/@]+:)[^\s@/]+@/g, '$1***@')
+}
+
 /** What identifies a call, spelled so that limit/offset variants of one command collapse. */
 export function describe(tool: string, input: Record<string, unknown>): { sig: string; sample: string; raw: string; paged: boolean } {
   const t = tool.toLowerCase()
   if (t === 'bash') {
-    const cmd = str(input.command)
+    const cmd = redact(str(input.command))
     const stripped = cmd.replace(PAGE, '')
-    const sig = 'bash:' + stripped.replace(/\b\d+\b/g, '#').replace(/\s+/g, ' ').trim().slice(0, 200)
-    return { sig, sample: cmd.replace(/\s+/g, ' ').trim().slice(0, 100), raw: cmd, paged: stripped !== cmd }
+    // Numbers stay: `gh pr view 101` and `102` are different calls. Only paging limits are stripped.
+    const sig = 'bash:' + stripped.replace(/\s+/g, ' ').trim().slice(0, 200)
+    return { sig, sample: cmd.replace(/\s+/g, ' ').trim().slice(0, 100), raw: cmd.slice(0, 300), paged: stripped !== cmd }
   }
   if (t === 'read' || t === 'edit' || t === 'write' || t === 'multiedit') {
+    // The path only: an edit's or a write's input holds file content.
     const p = str(input.file_path)
-    return { sig: `${t}:${p}`, sample: p, raw: JSON.stringify(input).slice(0, 300), paged: false }
+    const range = t === 'read' && (input.offset !== undefined || input.limit !== undefined) ? ` ${String(input.offset ?? '')}:${String(input.limit ?? '')}` : ''
+    return { sig: `${t}:${p}`, sample: p, raw: (p + range).slice(0, 300), paged: false }
   }
   if (t === 'grep' || t === 'glob') {
     const sample = `${str(input.pattern)} in ${str(input.path) || '.'}`
     return { sig: `${t}:${str(input.pattern)}|${str(input.path)}`, sample, raw: sample, paged: false }
   }
-  const raw = JSON.stringify(input)
-  return { sig: `${t}:${raw.slice(0, 120)}`, sample: raw.slice(0, 80), raw, paged: false }
+  const raw = redact(JSON.stringify(input))
+  return { sig: `${t}:${raw.slice(0, 120)}`, sample: raw.slice(0, 80), raw: raw.slice(0, 300), paged: false }
 }
 
 const RULES: Array<[RegExp, Category]> = [
@@ -110,7 +124,7 @@ const firstLine = (t: string) => (t.split('\n').find(l => l.trim()) ?? '').trim(
 const BARE_EXIT = /^exit code \d+$/i
 const errorLine = (t: string) => {
   const lines = t.split('\n').map(l => l.trim()).filter(Boolean)
-  return lines.find(l => !BARE_EXIT.test(l)) ?? lines[0] ?? ''
+  return redact(lines.find(l => !BARE_EXIT.test(l)) ?? lines[0] ?? '').slice(0, 160)
 }
 
 function blank(c: Call, d: ReturnType<typeof describe>): Entry {
@@ -153,6 +167,7 @@ export function track(map: Map<string, Entry>, c: Call): Entry {
   const d = describe(c.tool, c.input)
   const e = map.get(d.sig) ?? blank(c, d)
   e.count++
+  e.quiet = false
   e.lastAt = c.at
   e.bytes += c.text.length
   e.inBytes += JSON.stringify(c.input).length
@@ -196,6 +211,7 @@ export function interrupted(map: Map<string, Entry>, c: Omit<Call, 'text' | 'isE
 
 /** Repeating the same failure, or re-running one command with different limits. */
 export function loopSize(e: Entry): number {
+  if (e.quiet) return 0
   if (e.loop) return e.streak >= LOOP_MIN ? e.streak : 0
   if (e.sameErr >= LOOP_MIN) return e.sameErr
   if (e.paged && e.variants.length >= LOOP_MIN && e.errors < e.count) return e.variants.length
@@ -247,8 +263,16 @@ export function klOf(e: Entry): string {
   return isRefetch(e) ? 're-fetch loop' : 'error loop'
 }
 
+/** A file path cut to its last two folders and name, so a band shows the part that identifies it. */
+export const shortPath = (p: string) => {
+  const parts = p.split('/').filter(Boolean)
+  return parts.length > 3 ? `…/${parts.slice(-3).join('/')}` : p
+}
+
+const isFileTool = (tool: string) => /^(read|edit|write|multiedit)$/i.test(tool)
+
 /** What the loop is about, as a person reads it: the error for a same-error loop, else the call. */
-export const callOf = (e: Entry) => (e.loop === 'cross' ? `"${e.sample}"` : `${e.tool} ${e.sample}`)
+export const callOf = (e: Entry) => (e.loop === 'cross' ? `"${e.sample}"` : `${e.tool} ${isFileTool(e.tool) ? shortPath(e.sample) : e.sample}`)
 
 /** What happened, after `callOf`: "failed 3× with the same error". */
 export function loopPhrase(e: Entry, n = Math.max(e.peak, loopSize(e))): string {
@@ -317,6 +341,11 @@ export function ruleText(e: Entry): string {
 /** The one-line note shown to the model right after a result that continues a loop. */
 export function liveHint(e: Entry): string {
   const n = loopSize(e)
+  // A same-error note names the commands, never the error text: tool output is not ours to repeat to the model.
+  if (e.loop === 'cross') {
+    const cmds = e.variants.map(v => '`' + v.replace(/^bash:/, '').slice(0, 40) + '`').slice(0, 3).join(', ')
+    return `Lessons: ${Math.max(2, e.variants.length)} different commands (${cmds}) failed ${n}× with the same error. ${advice(e)}`
+  }
   if (e.loop) return `Lessons: ${callOf(e)} ${loopPhrase(e, n)}. ${advice(e)}`
   const kind = isRefetch(e) ? `re-run ${n} times with different limits` : `failed ${n} times in a row with the same error`
   return `Lessons: this call has ${kind}. ${ruleText(e)}`
@@ -332,7 +361,7 @@ export function matcherFor(e: Entry): Matcher {
   // A same-error loop is not tied to one command, so its rule goes with the tool.
   if (e.loop === 'cross') return { tools: [e.tool], prefix: '', label: `${e.tool}(*)` }
   if (t === 'bash') {
-    const w = e.sample.split(/\s+/)
+    const w = commandCore(e.sample).split(/\s+/)
     const two = w[1] && !w[1].startsWith('-') && !/[|;&<>$]/.test(w[1])
     const prefix = two ? `${w[0]} ${w[1]}` : (w[0] ?? '')
     return { tools: ['Bash'], prefix, label: `Bash(${prefix}*)` }
@@ -345,9 +374,20 @@ export function matcherFor(e: Entry): Matcher {
   return { tools: [e.tool], prefix: '', label: `${e.tool}(*)` }
 }
 
+/** A command without what only sets it up: leading `cd dir &&`/`;` steps and `VAR=value` assignments. */
+export function commandCore(cmd: string): string {
+  let c = cmd.trim()
+  for (let i = 0; i < 4; i++) {
+    const next = c.replace(/^cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*/, '').replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s+)+/, '')
+    if (next === c) break
+    c = next
+  }
+  return c
+}
+
 export function matches(m: Matcher, tool: string, key: string): boolean {
   if (!m.tools.some(x => x.toLowerCase() === tool.toLowerCase() || (x === 'Edit' && /^(write|multiedit)$/i.test(tool)))) return false
-  return m.prefix === '' || key.startsWith(m.prefix)
+  return m.prefix === '' || (tool.toLowerCase() === 'bash' ? commandCore(key) : key).startsWith(m.prefix)
 }
 
 /** What a call is matched on: the command for Bash, the path for file tools. */
@@ -381,7 +421,7 @@ export type Proposal = {
 export function idOf(sig: string): string {
   let h = 2166136261
   for (let i = 0; i < sig.length; i++) h = Math.imul(h ^ sig.charCodeAt(i), 16777619)
-  return (h >>> 0).toString(36).slice(0, 4).padStart(4, '0')
+  return (h >>> 0).toString(36).padStart(6, '0').slice(-6)
 }
 
 export const DEFAULT_TURNS = 60
@@ -392,7 +432,8 @@ export function propose(map: Map<string, Entry>, taken: Set<string>, turns: numb
   for (const e of map.values()) {
     if (taken.has(e.sig) || skip.has(idOf(e.sig))) continue
     const loop = wasLoop(e)
-    const kind: Kind | null = loop ? 'loop' : e.corrections > 0 ? 'correction' : e.errors >= 2 ? 'failure' : null
+    // One interrupt is not a pattern, and two different failures are not 'the same way'.
+    const kind: Kind | null = loop ? 'loop' : e.corrections >= 2 || e.category === 'user_rejected' ? 'correction' : e.sameErr >= 2 ? 'failure' : null
     if (!kind) continue
     const text = ruleText(e)
     const m = matcherFor(e)
@@ -489,7 +530,28 @@ export function activeRows(rules: Rule[], sessions: number): ActiveRow[] {
 }
 
 // ---- memory candidates ------------------------------------------------------------------------
-export type MemFile = { name: string; content: string; dir?: string }
+/** One instruction file's own text (never what its @-imports bring); `name` is its path from the project root, `path` absolute. */
+export type MemFile = { name: string; content: string; dir?: string; path?: string }
+
+type Found = { dir: string; name: string; content: string; parts: readonly { path: string; content: string }[] }
+
+/** The project's instruction files as Lessons may edit them: inside the root only, each with its own
+ * text (never what its @-imports bring), named by its path from the root so two CLAUDE.md files differ. */
+export function memFilesFrom(found: readonly Found[], root: string): MemFile[] {
+  const rootDir = root.replace(/\/$/, '')
+  const out: MemFile[] = []
+  for (const f of found) {
+    const own = f.parts[0]
+    const path = own?.path ?? `${f.dir.replace(/\/$/, '')}/${f.name}`
+    if (!path.startsWith(rootDir + '/')) continue
+    out.push({ name: path.slice(rootDir.length + 1), content: own?.content ?? f.content, dir: f.dir, path })
+  }
+  return out
+}
+
+/** True when lines from..to of the file still read as they did when shown to the person. */
+export const linesStill = (content: string, from: number, to: number, lines: readonly string[]) =>
+  content.split('\n').slice(from - 1, to).join('\n') === lines.join('\n')
 /** Key under which a missing path is recorded: the folder of the file that mentions it, then the path. */
 export const missKey = (dir: string | undefined, ref: string) => `${dir ?? ''}\u0000${ref}`
 
@@ -509,19 +571,23 @@ export type Cand = {
 const REF = /`([^`\n]+)`/g
 const looksPath = (s: string) => /\//.test(s) || /\.[a-z0-9]{1,5}$/i.test(s)
 /** Backticked paths and the first word of backticked commands. */
-export function refsOf(text: string): { paths: string[]; cmds: string[] } {
+export function refsOf(text: string): { paths: string[]; cmds: string[]; words: string[] } {
   const paths: string[] = []
   const cmds: string[] = []
+  /** Lone words: a command only if it was actually run, never evidence that a line is unused. */
+  const words: string[] = []
   for (const m of text.matchAll(REF)) {
     const t = (m[1] ?? '').trim()
     if (!t) continue
     if (looksPath(t) && !/\s/.test(t)) paths.push(t.replace(/^\.\//, ''))
     else {
-      const w = t.split(/\s+/)[0] ?? ''
-      if (/^[a-z][\w.-]*$/i.test(w)) cmds.push(w)
+      // `npm test` names a command; a lone word such as `any` or `snake_case` is a term, not a command.
+      const multi = /\s/.test(t)
+      const w = multi ? (commandCore(t).split(/\s+/)[0] ?? '') : t
+      if (/^[a-z][\w.-]*$/i.test(w)) (multi ? cmds : words).push(w)
     }
   }
-  return { paths, cmds }
+  return { paths, cmds, words }
 }
 
 /** Sections and lines of instruction files that look removable. Guesses from activity, labelled as such. */
@@ -534,13 +600,13 @@ export function memoryCandidates(files: MemFile[], used: Record<string, number>,
     lines.forEach((ln, i) => {
       if (ln.includes('claude-mods:lessons:start')) skip = true
       if (!skip && ln.trim() && !/^\s*#/.test(ln)) {
-        const { paths, cmds } = refsOf(ln)
-        if (paths.length + cmds.length) {
+        const { paths, cmds, words } = refsOf(ln)
+        if (paths.length + cmds.length + words.length) {
           const tokens = tokensOf(ln)
           const base = { id: idOf(`${f.name}:${i + 1}`), file: f.name, from: i + 1, to: i + 1, text: ln.trim().replace(/^[-*]\s+/, ''), tokens }
           const gone = paths.find(p => isRepoPath(p) && missing.has(missKey(f.dir, p)))
           const unused = cmds.filter(c => !used[c])
-          const hit = Math.max(0, ...cmds.map(c => used[c] ?? 0), ...paths.map(p => used[p] ?? 0))
+          const hit = Math.max(0, ...cmds.map(c => used[c] ?? 0), ...words.map(c => used[c] ?? 0), ...paths.map(p => used[p] ?? 0))
           if (gone) cands.push({ ...base, st: 'stale', why: `\`${gone}\` was not found in this repo` })
           else if (sessions >= 3 && cmds.length > 0 && unused.length === cmds.length && paths.length === 0)
             cands.push({ ...base, st: 'never triggered', why: `no \`${unused[0]}\` calls in ${sessions} sessions` })
@@ -571,14 +637,19 @@ export function restoreLines(content: string, at: number, removed: string[]): st
 export const BLOCK_START = '<!-- claude-mods:lessons:start -->'
 export const BLOCK_END = '<!-- claude-mods:lessons:end -->'
 
+/** A rule as one list item: no line breaks, and nothing that could open or close an HTML comment. */
+export const oneLine = (t: string) => t.replace(/<!--|-->/g, '').replace(/\s+/g, ' ').trim()
+
 /** Replaces the marked block (or appends one); an empty list removes it. Text outside is untouched. */
 export function upsertBlock(file: string, texts: string[]): string {
   const a = file.indexOf(BLOCK_START)
   const b = file.indexOf(BLOCK_END)
   const has = a !== -1 && b > a
+  // A start marker with no end (an edit outside Lessons cut it): drop the marker, keep every other line.
+  if (a !== -1 && !has) return upsertBlock(file.slice(0, a) + file.slice(a + BLOCK_START.length), texts)
   const before = has ? file.slice(0, a).replace(/\n+$/, '') : file.replace(/\n+$/, '')
   const after = has ? file.slice(b + BLOCK_END.length).replace(/^\n+/, '') : ''
-  const block = texts.length ? [BLOCK_START, '## Lessons', ...texts.map(t => `- ${t}`), BLOCK_END].join('\n') : ''
+  const block = texts.length ? [BLOCK_START, '## Lessons', ...texts.map(t => `- ${oneLine(t)}`), BLOCK_END].join('\n') : ''
   const body = [before, block, after].filter(s => s.length > 0).join('\n\n')
   return body === '' ? '' : body + '\n'
 }
@@ -586,7 +657,7 @@ export function upsertBlock(file: string, texts: string[]): string {
 /** Where a rule's line lands in the file `upsertBlock` would write (1-based). */
 export function lineOf(file: string, texts: string[], text: string): number {
   const out = upsertBlock(file, texts).split('\n')
-  return out.findIndex(l => l === `- ${text}`) + 1
+  return out.findIndex(l => l === `- ${oneLine(text)}`) + 1
 }
 
 // ---- persisted shapes ----------------------------------------------------------------------------
@@ -710,6 +781,7 @@ export function sanitizeEntries(v: unknown): Entry[] {
       lastAt: num(o.lastAt),
       ...(LOOP_KINDS.includes(o.loop as LoopKind) ? { loop: o.loop as LoopKind } : {}),
       streak: num(o.streak),
+      ...(o.quiet === true ? { quiet: true } : {}),
     })
   }
   return out
@@ -733,7 +805,7 @@ export type PatternState = {
   calls: number
   edits: number
   /** Recent edits per file; `write` entries hold a content key, not a string pair. */
-  byFile: Map<string, Array<{ from: string; to: string; write: boolean; revert: boolean }>>
+  byFile: Map<string, Array<{ from: string; to: string; write: boolean; revert: boolean; pair: string }>>
   /** One error line, collapsed, to the commands it came from. */
   errs: Map<string, { n: number; sigs: string[]; at: number }>
   /** The last failing run of each Bash command. */
@@ -751,7 +823,7 @@ const clean = (l: string) => l.replace(/\x1b\[[0-9;]*m/g, '').replace(/\b\d+(?:\
 /** The line that says what went wrong, skipping headers and progress noise. */
 export function signalLine(text: string): string {
   const lines = text.split('\n').map(l => l.trim()).filter(l => l && !BARE_EXIT.test(l))
-  return lines.find(l => SIGNAL.test(l)) ?? lines[0] ?? ''
+  return redact(lines.find(l => SIGNAL.test(l)) ?? lines[0] ?? '').slice(0, 160)
 }
 
 /** A failure's fingerprint: its error lines, collapsed so timings and counts don't count as change. */
@@ -774,20 +846,32 @@ const contentKey = (s: string) => `${s.length}:${idOf(s)}${idOf(s.split('').reve
 /** Folds one finished call into the cross-call loops; returns the loop entries it advanced. */
 export function trackPatterns(st: PatternState, map: Map<string, Entry>, c: Call): Entry[] {
   st.calls++
+  const t = c.tool.toLowerCase()
+  const d = describe(c.tool, c.input)
   // Loops restored from the store predate this state, and nothing here could ever end them.
-  if (st.calls === 1) for (const e of map.values()) if (e.loop) e.streak = 0
+  if (st.calls === 1)
+    for (const e of map.values()) {
+      if (e.sig === d.sig || loopSize(e) === 0) continue
+      e.streak = 0
+      e.quiet = true
+    }
+  // This call's own per-command loop, if it is one, is live now.
+  const own = map.get(d.sig)
+  if (own && loopSize(own) > 0) st.live.set(own.sig, st.calls)
   for (const [sig, at] of st.live) {
     if (st.calls - at <= LIVE_CALLS) continue
     st.live.delete(sig)
     const e = map.get(sig)
-    if (e) e.streak = 0
+    if (e) {
+      e.streak = 0
+      e.quiet = true
+    }
   }
-  const t = c.tool.toLowerCase()
-  const d = describe(c.tool, c.input)
   const touched: Entry[] = []
   const bump = (sig: string, kind: LoopKind, tool: string, sample: string, streak: number, raw: string, ev: string) => {
     const e = map.get(sig) ?? { ...blank(c, d), tool, sig, sample, loop: kind }
     e.count++
+    e.quiet = false
     e.lastAt = c.at
     e.bytes += c.text.length
     e.inBytes += JSON.stringify(c.input).length
@@ -815,7 +899,7 @@ export function trackPatterns(st: PatternState, map: Map<string, Entry>, c: Call
     const pairs =
       t === 'write'
         ? [{ from: list.at(-1)?.write ? list.at(-1)!.to : '', to: contentKey(str(c.input.content)), write: true }]
-        : (t === 'multiedit' && Array.isArray(c.input.edits) ? (c.input.edits as Record<string, unknown>[]) : [c.input]).map(x => ({
+        : (t === 'multiedit' && Array.isArray(c.input.edits) ? (c.input.edits as unknown[]).filter((x): x is Record<string, unknown> => !!x && typeof x === 'object') : [c.input]).map(x => ({
             from: str(x.old_string).trim(),
             to: str(x.new_string).trim(),
             write: false,
@@ -825,11 +909,13 @@ export function trackPatterns(st: PatternState, map: Map<string, Entry>, c: Call
       const revert = p.write
         ? list.some(o => o.write && o.to === p.to) && p.from !== p.to
         : list.some(o => !o.write && o.from === p.to && o.to === p.from)
-      list.push({ ...p, revert })
+      list.push({ ...p, revert, pair: [p.from, p.to].sort().join('\u0000') })
       if (list.length > EDIT_WINDOW) list.shift()
       if (!revert) stop(`undo:${path}`)
       else {
-        const n = 1 + list.filter(o => o.revert).length
+        // Only the back and forth of one change: two unrelated undos are two experiments.
+        const pair = [p.from, p.to].sort().join('\u0000')
+        const n = 1 + list.filter(o => o.revert && o.pair === pair).length
         bump(`undo:${path}`, 'undo', c.tool === 'Write' ? 'Write' : 'Edit', path, n, p.write ? '(whole file)' : p.to.slice(0, 120), `${tag(c.turn)}  ${c.tool}  ${path}  → undid an earlier edit`)
       }
     }
@@ -894,7 +980,8 @@ export function trackPatterns(st: PatternState, map: Map<string, Entry>, c: Call
       const lines = failLines(c.text)
       const prev = st.runs.get(d.sig)
       if (prev && st.edits > prev.edits) {
-        if (similar(prev.lines, lines)) bump(sig, 'retest', 'Bash', d.sample, (map.get(sig)?.streak || 1) + 1, '', `${tag(c.turn)}  Bash  ${d.sample}  → same failure after an edit`)
+        // A failure line that went away is progress, however much of the output is unchanged.
+        if (prev.lines.every(l => lines.includes(l)) && similar(prev.lines, lines)) bump(sig, 'retest', 'Bash', d.sample, (map.get(sig)?.streak || 1) + 1, '', `${tag(c.turn)}  Bash  ${d.sample}  → same failure after an edit`)
         else stop(sig)
       }
       // A plain retry with no edit in between is the per-call loop's to count.

@@ -159,6 +159,9 @@ test('desktop band appears only when it matters', () => {
   expect(cacheBandDesktop(el, derive({ ...base, now: 1_000 }), acts)).toBe(null)
   expect(flat(cacheBandDesktop(el, derive(base), acts) as Node).includes('Keep warm')).toBe(true)
   expect(flat(cacheBandDesktop(el, derive({ ...base, now: 401_000 }), acts) as Node).includes('Compact now')).toBe(true)
+  // Only the explanation can shrink, so 'Cache is cold' and the buttons never wrap.
+  const band = cacheBandDesktop(el, derive({ ...base, now: 401_000 }), acts) as unknown as { children?: Array<{ props?: Record<string, unknown> }> }
+  expect((band.children ?? []).filter(k => k.props?.flexShrink !== 0).length).toBe(1)
 })
 
 test('svg builders emit one well-formed document each', () => {
