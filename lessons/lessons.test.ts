@@ -31,6 +31,7 @@ import {
   track,
   upsertBlock,
   wastedTokens,
+  wasLoop,
 } from './hooks/model'
 import type { Entry } from './hooks/model'
 import { lessonsBandDesktop, lessonsPaneDesktop } from './hooks/desktop'
@@ -338,14 +339,16 @@ test('toast is one plain sentence', () => {
 })
 
 // ---- desktop -----------------------------------------------------------------------------------
-type Node = { tag: string; props: Record<string, unknown>; kids: unknown[] } | string | number | false | null | undefined
+// An element as both test runners build it: `props` is absent when none were given.
+type Node = { type: string; props?: Record<string, unknown>; children: unknown[] } | string | number | false | null | undefined
 const el = { Box: 'Box', Text: 'Text', Button: 'Button', Svg: 'Svg' } as never
 const flat = (n: Node | Node[]): string => {
   if (n === null || n === undefined || n === false) return ''
   if (typeof n === 'string' || typeof n === 'number') return String(n)
   if (Array.isArray(n)) return n.map(flat).join(' ')
-  const own = n.tag === 'Button' ? String(n.props.label ?? '') : n.tag === 'Svg' ? `[svg:${n.props.alt}]` : ''
-  return `${own} ${(n.kids as Node[]).map(flat).join(' ')}`
+  const pr = n.props ?? {}
+  const own = n.type === 'Button' ? String(pr.label ?? '') : n.type === 'Svg' ? `[svg:${pr.alt}]` : ''
+  return `${own} ${((n.children ?? []) as Node[]).map(flat).join(' ')}`
 }
 const acts = new Proxy({} as Record<string, () => void>, { get: () => () => {} })
 
@@ -496,9 +499,62 @@ test('cross-call loops become priced proposals and survive a reload', () => {
 test('desktop band: only the middle text can shrink, so counts and buttons stay whole', () => {
   const { m } = flow([edit('a.ts', 'x = 1', 'x = 2'), edit('a.ts', 'x = 2', 'x = 1'), edit('a.ts', 'x = 1', 'x = 2')])
   const v = view({ loops: loopRows(m, new Set()) })
-  const band = lessonsBandDesktop(el, v as never, new Proxy({}, { get: () => () => {} }) as never) as unknown as { kids: Node[] }
-  const parts = (band.kids as unknown[]).flat() as Array<{ props: Record<string, unknown> }>
-  const shrinkable = parts.filter(k => k.props.flexShrink !== 0)
+  const band = lessonsBandDesktop(el, v as never, new Proxy({}, { get: () => () => {} }) as never) as unknown as { children: Node[] }
+  const parts = (band.children ?? []) as Array<{ props?: Record<string, unknown> }>
+  const shrinkable = parts.filter(k => k.props?.flexShrink !== 0)
   expect(shrinkable.length).toBe(1)
   expect(flat(band as never).includes('undoing')).toBe(true)
+})
+
+test('a dismissal is remembered across sessions, and an older history without it still loads', () => {
+  const h = sanitizeHistory({ sessions: 3, dismissed: ['ab12', 7, 'cd34'] })
+  expect(h.dismissed.join(',')).toBe('ab12,cd34')
+  expect(sanitizeHistory({ sessions: 1 }).dismissed.length).toBe(0)
+  const m = run(loopCalls())
+  const id = propose(m, new Set(), 60)[0]!.id
+  expect(propose(m, new Set(), 60, new Set([id])).some(p => p.id === id)).toBe(false)
+})
+
+test('the program name in front of an error does not make it a different error', () => {
+  const nf = (cmd: string) => call('Bash', { command: `${cmd} /tmp/nope.txt` }, `Exit code 1\n${cmd.split(' ')[0]}: /tmp/nope.txt: No such file or directory`, true)
+  const { loop } = flow([nf('cat'), nf('head'), nf('wc -l')])
+  expect(loopSize(loop('cross')!)).toBe(3)
+})
+
+test('a loop that has gone quiet ends, so the band does not stay on "loop caught"', () => {
+  const st = newPatterns()
+  const m = new Map<string, Entry>()
+  const go = (c: ReturnType<typeof call>) => trackPatterns(st, m, c)
+  for (const c of [edit('a.ts', 'x = 1', 'x = 2'), edit('a.ts', 'x = 2', 'x = 1'), edit('a.ts', 'x = 1', 'x = 2')]) go(c)
+  const e = [...m.values()].find(x => x.loop === 'undo')!
+  expect(loopSize(e)).toBe(3)
+  for (let i = 0; i < 11; i++) go(call('Read', { file_path: `f${i}.ts` }))
+  expect(loopSize(e)).toBe(0)
+  expect(wasLoop(e)).toBe(true) // still listed and still a proposal
+})
+
+test('a forward edit ends a live undo loop, and a loop restored from the store starts ended', () => {
+  const { m, st } = flow([edit('a.ts', 'x = 1', 'x = 2'), edit('a.ts', 'x = 2', 'x = 1'), edit('a.ts', 'x = 1', 'x = 2')])
+  trackPatterns(st, m, edit('a.ts', 'y = 1', 'y = 5'))
+  expect(loopSize([...m.values()].find(x => x.loop === 'undo')!)).toBe(0)
+  const live = flow([edit('b.ts', 'x = 1', 'x = 2'), edit('b.ts', 'x = 2', 'x = 1'), edit('b.ts', 'x = 1', 'x = 2')])
+  const restored = new Map(sanitizeEntries(JSON.parse(JSON.stringify([...live.m.values()]))).map(e => [e.sig, e]))
+  trackPatterns(newPatterns(), restored, call('Read', { file_path: 'c.ts' }))
+  expect(loopSize([...restored.values()].find(x => x.loop === 'undo')!)).toBe(0)
+})
+
+test('restoring a file with Write after an Edit counts as undoing', () => {
+  const w = (c: string) => call('Write', { file_path: 'b.ts', content: c })
+  const { loop } = flow([w('v1'), edit('b.ts', 'v1', 'v2'), w('v1'), edit('b.ts', 'v1', 'v2'), w('v1')])
+  expect(loopSize(loop('undo')!)).toBe(3)
+})
+
+test('two same-error loops make one proposal, and none once that rule is accepted', () => {
+  const { m } = flow([
+    ...['npx tsc', 'npm run build', 'pnpm tsc'].map(c => call('Bash', { command: c }, TS_ERR, true)),
+    ...['cat x', 'head x', 'tail x'].map(c => call('Bash', { command: c }, `${c.split(' ')[0]}: /tmp/missing.txt: No such file or directory`, true)),
+  ])
+  const cross = propose(m, new Set(), 60).filter(p => p.kl === 'same-error loop')
+  expect(cross.length).toBe(1)
+  expect(propose(m, new Set([cross[0]!.text]), 60).some(p => p.kl === 'same-error loop')).toBe(false)
 })

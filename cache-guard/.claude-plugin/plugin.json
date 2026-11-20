@@ -1,7 +1,20 @@
 {
   "name": "cache-guard",
   "version": "0.3.0",
-  "description": "Counts down the prompt cache, warns before it goes stale, and can keep it warm with cheap cache-read pings.",
+  "description": "Counts down the prompt cache, warns before it expires, and can keep it warm with cheap pings while that costs less than a miss.",
+  "author": {
+    "name": "Rohit",
+    "url": "https://github.com/Rohitp"
+  },
+  "homepage": "https://github.com/Rohitp/claude-mods#cache-guard",
+  "repository": "https://github.com/Rohitp/claude-mods",
+  "license": "MIT",
+  "keywords": [
+    "prompt-cache",
+    "cost",
+    "tokens"
+  ],
+  "icon": "./.claude-plugin/icon.png",
   "types": "./types/index.d.ts",
   "userConfig": {
     "metrics": {

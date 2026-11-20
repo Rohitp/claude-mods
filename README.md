@@ -1,106 +1,201 @@
 # claude-mods
 
-Three small mods for Claude Code: what fills your context window, when your prompt cache is about to go cold, and which repeated mistakes are worth a rule.
+Three mods for [Claude Code](https://claude.com/claude-code). A *mod* is a plugin that changes Claude Code's own screen and behaviour: it can add a side panel, a line above the prompt box, or a short note the model reads after a tool runs.
 
-| Mod | Answers |
-|---|---|
-| **context-lens** | What is using my context window, and what does carrying it cost? |
-| **cache-guard** | When does my prompt cache expire, and what will the next turn cost if it does? |
-| **lessons** | What keeps going wrong in my sessions, and is a rule for it worth what it costs to carry? |
+| Mod | What it tells you | Opens with |
+|---|---|---|
+| **[Context Lens](#context-lens)** | What is filling the context window, and what carrying it costs every turn | `/ctx` |
+| **[Cache Guard](#cache-guard)** | When the prompt cache is about to expire, and what the next turn costs if it does | `/cache` |
+| **[Lessons](#lessons)** | When Claude is stuck in a loop, and which repeated mistakes are worth a standing rule | `/lessons` |
 
-![Context Lens in the terminal](docs/images/terminal-context-lens.png)
+Each mod works on its own; install any one of them, or all three.
+
+![Context Lens and Cache Guard in the terminal](docs/images/terminal-context-lens.png)
+
+## Requirements
+
+- Claude Code **2.1.325 or newer**. Mods are an early-access feature, so their API can change between releases. Check your version with `claude --version`.
+- Works in the terminal and in the desktop app's Code tab. The terminal is the most tested.
 
 ## Install
 
+In Claude Code, run one line per mod you want:
+
 ```
 /plugin install context-lens --marketplace Rohitp/claude-mods
-/plugin install cache-guard  --marketplace Rohitp/claude-mods
-/plugin install lessons      --marketplace Rohitp/claude-mods
 ```
 
-Answer `y` to add the marketplace, then choose a scope. To try them from a checkout instead:
-
 ```
-claude --plugin-dir ./context-lens --plugin-dir ./cache-guard --plugin-dir ./lessons
+/plugin install cache-guard --marketplace Rohitp/claude-mods
 ```
 
-Needs a Claude Code build with mod support (written against 2.1.296).
+```
+/plugin install lessons --marketplace Rohitp/claude-mods
+```
+
+The first time, Claude Code asks whether to add the `Rohitp/claude-mods` marketplace (the list of plugins in this repository): answer `y`. Then pick a scope: *user* installs it for every project, *project* only for the current one. Start a new session and the mod is running.
+
+To turn a mod off without removing it, use `/plugin` and disable it. To remove it: `/plugin uninstall lessons` (or the mod's name).
+
+---
 
 ## Context Lens
 
-Says what is filling the context at the moment it happens, and stays quiet otherwise. `/ctx` opens the full panel.
+The *context window* is everything the model reads on each turn: the system prompt, tool definitions, your `CLAUDE.md` memory files, MCP server instructions, and the conversation so far. When it fills up, Claude Code *autocompacts*: it replaces the conversation with a summary. A full window is also more expensive, because every turn re-reads all of it.
 
-- **Under a tool call:** a result of 10k tokens or more gets a line under its row, such as `+42k context · 4.2% of window`. Grouped reads and searches get one line, summed.
-- **Cards in the conversation:** the first time the context passes 80%, then 90%, then when autocompact is next, a card says how many turns are left and what compacting would free (an estimate: messages shrink to a summary), with **Compact now** and **Not now**. Each level gets one card; after a compaction they start again.
-- **Working line:** from 70%, the line that animates during a turn adds the fill, such as `· 84% context`.
-- **Band:** a stacked bar, percent used and the biggest categories. By default it shows only from 80%, with **Compact now**. `/ctx band on` keeps it up, `/ctx band off` turns it off, `/ctx band auto` goes back to the default; its × also turns it off.
-- **Panel (`/ctx`):** every category with its tokens and share of the window; each memory file, MCP server, skill and agent, plus messages split by source; what removing a memory file or MCP server would free and how many turns until the one-time cache rebuild pays back; and window fill per turn with the growth rate.
+Context Lens shows what is in the window, says so at the moment something large lands, and stays quiet otherwise.
 
- To open the pane in every session, set the `openOnStart` option to `widget` (its small form on the desktop app) or `pane`; in the terminal it opens only where it fits as a sidebar.
+- **A line under big tool results.** When one tool call adds 10k tokens or more, a line appears under it, such as `+42k context · 4.2% of window`.
+- **Cards at 80%, 90%, and just before autocompact.** A card appears in the conversation saying how many turns are left and how much compacting would free, with **Compact now** and **Not now**. Each level shows once; after a compaction they start again.
+- **The working line.** From 70% full, the animated line shown while Claude works adds the fill, such as `· 84% context`.
+- **The band** is a one-line row above the prompt box: a stacked bar, the percent used and the biggest categories. It appears from 80% full. `/ctx band on` keeps it up all the time, `/ctx band off` hides it, `/ctx band auto` restores the default. Its **×** hides it for the session.
+- **The panel** (`/ctx`) has four tabs:
+  - **Category:** tokens per category (tools, memory files, messages…) and each one's share of the window.
+  - **Items:** each memory file, MCP server, skill and agent, and the conversation split by source.
+  - **What-if:** what removing one memory file or MCP server would free, and after how many turns that pays back. Removing something changes the start of the prompt, so the next turn costs more once while the prompt cache is rebuilt.
+  - **Trend:** fill per turn, how fast it is growing, and turns left until autocompact.
 
-![What-if tab](docs/images/terminal-what-if.png)
+![The What-if tab](docs/images/terminal-what-if.png)
+
+**Try it:** run `/ctx`. A panel opens with the Category tab selected and your current fill at the top, such as `44.3k of 1M 4%`. Press Tab to move between tabs, Enter to pick one, Esc to close.
 
 ## Cache Guard
 
-A countdown for the prompt cache, so an idle gap doesn't turn into an expensive full re-send.
+Claude Code uses a *prompt cache*: the start of the prompt, which repeats every turn, is stored by the API so the next turn can re-read it cheaply (about a tenth of the normal input price). The cache expires after a fixed idle time, its *TTL* (time to live): usually 5 minutes. If you step away longer, the next turn pays full price to write the whole prompt again.
 
-- **Warning:** at 60 seconds before expiry you get a note, and a band showing what a miss would cost.
-- **When it's cold:** the band says the next turn rewrites everything anyway, which is the cheapest moment to compact.
-- **Panel (`/cache`):** countdown, cost of a miss vs a keep-alive ping, recent hits and misses, and a log of cache busts with the cause (idle past the TTL, model change, effort change, compaction).
-- **Keep warm:** a manual toggle. It sends a cheap cache-read ping shortly before expiry and stops by itself once another ping would cost more than the miss it avoids, or after 2 hours without a turn. It never turns itself on.
+Cache Guard counts down to that expiry.
 
-`/cache warm` toggles keep warm; `/cache 5m` or `/cache 1h` sets the TTL it assumes.
+- **A warning 60 seconds before expiry:** a short pop-up and a band above the prompt box showing what a miss would cost.
+- **After it expires:** the band says the next turn rewrites everything anyway, which makes it the cheapest moment to compact.
+- **The panel** (`/cache`): the countdown, the cost of a miss against a keep-alive ping, recent cache hits and misses, and a log of what invalidated the cache: going idle past the TTL, switching model, switching effort, or a compaction.
+- **Keep warm** (`/cache warm`): sends a small request shortly before expiry so the cache stays alive. It is off until you turn it on. It turns itself off once another ping would cost more than the miss it prevents, or after 2 hours with no turn from you. Each ping is a real model request and is billed as one.
+
+Claude Code doesn't report the TTL, so Cache Guard assumes 5 minutes. `/cache 1h` switches it to one hour, `/cache 5m` back. `/cache stats` compares that assumption with the idle gaps it has actually seen and says if the other setting fits better.
 
 ![Cache Guard with keep warm on](docs/images/terminal-cache-guard.png)
 
-The cache band appears above the context band in the last minute before expiry (staged here so it shows at 4:50):
-
-![Cache band above the context band](docs/images/terminal-bands.png)
+**Try it:** send any message, then run `/cache`. The panel shows a countdown starting near `5:00`. Leave the session idle; at `1:00` a pop-up appears and the countdown turns amber.
 
 ## Lessons
 
-Catches failures, loops and corrections as they happen, and turns each into a one-line rule with a price. Nothing is written until you accept it.
+Lessons watches tool calls for loops while they happen, gives the model one short note to break out of them, and offers to turn repeated mistakes into one-line rules. Nothing is written to your files until you accept.
 
-- **Live nudge:** a loop's third step adds one short note after the tool result so the model changes approach, and shows a toast. `liveHints: false` turns the note off. It catches:
-  - the same failure from one call three times, or one command re-run with a bigger `head -n`;
-  - the same error from different commands (`tsc`, `npm run build`, `pnpm tsc` all failing on one type error);
-  - edits that undo each other (A→B, B→A, A→B), including whole-file writes back to an earlier version;
-  - a failure that survives each fix: run, edit, near-identical failure, with timings and line numbers ignored;
-  - one file range read three times with nothing changed in between (an edit, a command naming the file, or a compaction resets it).
+**Loops it catches.** On the third step of a loop, the model gets a one-line note after the tool result telling it to change approach, and you see a pop-up:
 
-  A call gets at most one note, so overlapping loops don't stack.
-- **Proposals:** each has the evidence, what it wasted (measured), what it costs to carry, and the net. A rule that costs more than it saves is dimmed and says so.
-- **Delivery:** *just in time* shows the rule once per session when a matching call runs again. *Always on* writes it to `CLAUDE.local.md` between markers. Both ask first, and **Undo** lasts until your next turn.
-- **Active:** accepted rules, how often they fired, and whether the failure came back.
-- **Loops:** this session's loops, the note the model was given verbatim, and waste per session.
-- **Memory:** lines in your `CLAUDE.md` files that look stale (a path that no longer exists), never triggered, or in use, with what each costs per turn. Remove keeps a copy so you can undo.
-- **Polish wording** is the only thing that calls a model, and asks first. It sends the rule and its evidence, nothing else.
+| Loop | Example |
+|---|---|
+| The same call failing the same way | `cat missing.txt` three times |
+| One command re-run with bigger limits | `grep … \| head -50`, then `-200`, then `-500` |
+| The same error from different commands | `tsc`, `npm run build` and `pnpm tsc` all failing on one type error |
+| Edits that undo each other | `x = 1` → `x = 2` → `x = 1` → `x = 2`, or writing a file back to an earlier version |
+| A failure that survives each fix | run tests, edit, same failure, edit, same failure (timings and line numbers are ignored when comparing) |
+| Re-reading a file that hasn't changed | the same part of a file read three times. An edit, a shell command that names the file, or a compaction resets the count |
 
-`/lessons` opens the pane; `/lessons accept <id> [always]` and `/lessons retire <id>` work without it.
+A tool call gets at most one note, so overlapping loops don't stack. Set the `liveHints` option to `false` to keep the pop-ups and the record but send the model nothing.
 
-## Desktop app
+**The panel** (`/lessons`) has four tabs:
 
-The mods also draw for the desktop app. These are the design previews the desktop renderer was built from; it has not been verified in the app yet.
+- **Proposals:** each repeated mistake as a one-line rule, with the evidence, the tokens it wasted (measured this session), what the rule would cost to carry (estimated), and the difference. A rule that would cost more than it saves is dimmed and says so. Accept it one of two ways:
+  - *Just in time:* the rule is shown to the model only when a matching tool call runs, at most twice a session. Cheapest.
+  - *Always on:* the rule is written to `CLAUDE.local.md`, a personal memory file Claude Code reads every turn, between marker comments so Lessons can update it. Costs tokens every turn.
 
-![Context Lens, desktop design](docs/images/desktop-context-lens.jpg)
-![Cache Guard, desktop design](docs/images/desktop-cache-guard.jpg)
+  **Undo** works until your next message. **Dismiss** hides a proposal for good, in later sessions too.
+- **Active:** accepted rules, how often each was shown, and whether the mistake came back anyway.
+- **Loops:** this session's loops, with the exact note the model received.
+- **Memory:** lines in your `CLAUDE.md` files that look stale (they name a path that no longer exists), never used, or in use, with what each costs per turn. **Remove** keeps a copy so you can undo it.
 
-## Good to know
+`/lessons accept <id>` (add `always` for always-on) and `/lessons retire <id>` work without opening the panel. **Polish wording** asks a model to tighten a rule's wording; it is the only Lessons feature that sends anything to a model, and it asks first.
 
-- **Billing mode is detected for you.** On API billing, costs are shown in dollars and marked "est."; on a subscription you get tokens, multipliers and your 5-hour window instead. A model without a known price shows tokens only.
-- **The cache TTL is assumed.** Claude Code doesn't report it, so the default is 5 minutes. `/cache stats` compares that assumption with the idle gaps it has actually seen and tells you if `/cache 1h` fits better.
-- **Numbers are estimates.** Prices come from a small built-in table, and the per-source message split is estimated from text length and scaled to the engine's own total.
-- **Bust causes are best effort.** Anything it can't attribute is shown as "cause unknown".
-- **The mod API is early access** and can change between Claude Code releases.
+Here is the Proposals tab after a short session, drawn by the mod's own renderer:
+
+```
+Lessons                                            subscription · tokens
+[ Proposals 2 ] [ Active 0 ] [ Loops 2 ] [ Memory 0 ]
+────────────────────────────────────────────────────────────────────────
+[−] ↻ When several different commands fail with the same error, fix…
+      3× · saved 1.3k · carry 60 · net +1.2k
+
+    ┌ rule ────────────────────────────────────────────────────────────┐
+    │ When several different commands fail with the same error, fix    │
+    │ what the error names instead of trying another command.          │
+    └──────────────────────────────────────────────────────────────────┘
+    Why
+    "src/api/user.ts(41,7): error TS2322: Type 'string' is not
+    assignable to type 'number'." came back 3× from 3 different
+    commands. That is about 1,250 tokens of output you paid for more
+    than once.
+```
+
+**Try it:** in any project, ask Claude:
+
+> Run these as three separate Bash calls even though they fail: `cat /tmp/nope.txt`, `head /tmp/nope.txt`, `tail /tmp/nope.txt`.
+
+After the third call a pop-up appears, starting `Caught a loop`. Run `/lessons` and open the Loops tab: the loop is listed as a *same-error loop*, with the exact note the model received.
+
+---
+
+## Settings
+
+Each mod has a few options. Set them in `~/.claude/settings.json` under `pluginConfigs`, then start a new session:
+
+```json
+{
+  "pluginConfigs": {
+    "lessons@claude-mods": { "options": { "liveHints": false } },
+    "context-lens@claude-mods": { "options": { "openOnStart": "widget" } }
+  }
+}
+```
+
+| Mod | Option | Default | What it does |
+|---|---|---|---|
+| Context Lens | `openOnStart` | `off` | `pane` opens the panel in every session; `widget` opens its small form in the desktop app (the full panel elsewhere). In the terminal it opens only when the window is wide enough for a side panel. |
+| Context Lens | `metrics` | `true` | Keeps local counters so `/ctx stats` can report how accurate its estimates were. |
+| Cache Guard | `metrics` | `true` | Keeps local counters so `/cache stats` can check the TTL assumption. |
+| Lessons | `liveHints` | `true` | `false` stops the notes to the model; loops are still recorded and shown. |
+
+## How the numbers are worked out
+
+- **Billing is detected for you.** With API billing, costs are shown in dollars and marked *est.* With a subscription you see tokens and your 5-hour usage window instead. For a model the mods don't have a price for, you see tokens only.
+- **Costs are estimates.** Prices come from a small table built into each mod. The split of the conversation by source is estimated from text length, then scaled to match Claude Code's own total.
+- **Lessons measures waste and estimates carry.** *Saved* counts the output tokens the loop actually produced more than once. *Carry* estimates what the rule costs in tokens each time it is shown.
+- **Cache causes are best effort.** A cache miss Cache Guard can't explain is shown as *cause unknown*.
 
 ## Privacy
 
-Nothing is sent anywhere unless you switch it on. The mods write debug lines (counts, ids and durations, never prompt or file content) to `claude --debug`, and keep counters and approved rules in their own local store. Set the `metrics` option to `false` to turn the counters off. Lessons also keeps, per project, the first word of the commands and the folders of the files it saw, so it can tell whether a `CLAUDE.md` line is used. The only model requests they make are the keep-warm pings you enable and, in Lessons, **Polish wording** after you confirm what it will send.
+- **Nothing leaves your machine** except the model requests you turn on: Cache Guard's keep-warm pings, and Lessons' **Polish wording**, which sends only the rule and its evidence after you confirm.
+- **What is stored, and where.** Each mod keeps its data in Claude Code's local plugin store on your computer:
+  - Context Lens and Cache Guard: counters, and a short event log of counts and durations. They never store prompt or file content.
+  - Lessons, per project: this session's tracked calls (each command or file path, cut to 300 characters, and the first line of any error), accepted and dismissed rules, and the first word of each command and the folders of files it saw. It uses those to tell whether a `CLAUDE.md` line is still used.
+- **What Lessons writes to your files.** Lessons edits `CLAUDE.local.md` only when you accept an *always-on* rule, and edits a `CLAUDE.md` line only when you press **Remove**. Both can be undone.
+- **Debug output.** Debug lines (counts, ids and durations) go to `claude --debug` only.
 
 ## Development
 
 ```
 npm install
-npm test                         # model, layout and rendering tests
-claude plugin validate ./cache-guard   # likewise context-lens, lessons
 ```
+
+```
+npm test
+```
+
+```
+claude plugin test ./lessons
+```
+
+```
+claude plugin validate ./lessons --profile directory
+```
+
+`npm test` runs all three mods' tests with a small local runner. `claude plugin test` runs one mod's tests the way Claude Code loads it, and `claude plugin validate … --profile directory` runs the checks the plugin directory applies to a submission. Swap `lessons` for `context-lens` or `cache-guard` to check the others. To run Claude Code with your local copies instead of the installed ones:
+
+```
+claude --plugin-dir ./context-lens --plugin-dir ./cache-guard --plugin-dir ./lessons
+```
+
+`scripts/make-icons.py` redraws the three listing icons.
+
+## License
+
+[MIT](LICENSE)

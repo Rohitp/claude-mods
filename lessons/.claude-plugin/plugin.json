@@ -1,7 +1,21 @@
 {
   "name": "lessons",
-  "version": "0.1.0",
-  "description": "Spots repeated failures and re-fetch loops as they happen, nudges the model, and turns them into small priced rules you approve.",
+  "version": "0.2.0",
+  "description": "Catches loops as they happen, nudges the model out of them, and turns repeated mistakes into one-line rules you approve, each with its cost.",
+  "author": {
+    "name": "Rohit",
+    "url": "https://github.com/Rohitp"
+  },
+  "homepage": "https://github.com/Rohitp/claude-mods#lessons",
+  "repository": "https://github.com/Rohitp/claude-mods",
+  "license": "MIT",
+  "keywords": [
+    "loops",
+    "rules",
+    "claude-md",
+    "memory"
+  ],
+  "icon": "./.claude-plugin/icon.png",
   "types": "./types/index.d.ts",
   "userConfig": {
     "liveHints": {

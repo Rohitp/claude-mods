@@ -118,19 +118,21 @@ test('pane lines never exceed the inner width', () => {
 import { cacheBandDesktop, cachePaneDesktop } from './hooks/desktop'
 import { miniBarSvg, ringSvg, stepsSvg } from './hooks/svg'
 
-type Node = { tag: string; props: Record<string, unknown>; kids: unknown[] } | string | number | false | null | undefined
+// An element as both test runners build it: `props` is absent when none were given.
+type Node = { type: string; props?: Record<string, unknown>; children: unknown[] } | string | number | false | null | undefined
 const el = { Box: 'Box', Text: 'Text', Button: 'Button', Svg: 'Svg' } as never
 const flat = (n: Node | Node[]): string => {
   if (n === null || n === undefined || n === false) return ''
   if (typeof n === 'string' || typeof n === 'number') return String(n)
   if (Array.isArray(n)) return n.map(flat).join(' ')
-  const own = n.tag === 'Button' ? String(n.props.label ?? '') : n.tag === 'Svg' ? `[svg:${n.props.alt}]` : ''
-  return `${own} ${(n.kids as Node[]).map(flat).join(' ')}`
+  const pr = n.props ?? {}
+  const own = n.type === 'Button' ? String(pr.label ?? '') : n.type === 'Svg' ? `[svg:${pr.alt}]` : ''
+  return `${own} ${((n.children ?? []) as Node[]).map(flat).join(' ')}`
 }
 const find = (n: Node, tag: string, out: { props: Record<string, unknown> }[] = []) => {
   if (n && typeof n === 'object' && !Array.isArray(n)) {
-    if (n.tag === tag) out.push(n)
-    ;(n.kids as Node[]).forEach(k => (Array.isArray(k) ? k.forEach(x => find(x as Node, tag, out)) : find(k, tag, out)))
+    if (n.type === tag) out.push({ props: n.props ?? {} })
+    ;((n.children ?? []) as Node[]).forEach(k => find(k, tag, out))
   }
   return out
 }

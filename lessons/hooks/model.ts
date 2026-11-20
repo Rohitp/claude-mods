@@ -265,13 +265,29 @@ export function loopPhrase(e: Entry, n = Math.max(e.peak, loopSize(e))): string 
   return isRefetch(e) ? `re-run ${n}× with different limits` : `failed ${n}× with the same error`
 }
 
+/** What to do instead, for a loop that spans calls. */
+function advice(e: Entry): string {
+  switch (e.loop) {
+    case 'cross':
+      return 'The command is not the problem: deal with what the error names before running another.'
+    case 'undo':
+      return 'Decide which version is right, and why, before editing it again.'
+    case 'retest':
+      return 'Find the cause from the failure before the next edit.'
+    case 'reread':
+      return 'Use what was already read instead of reading it again.'
+  }
+  return ''
+}
+
 export function ruleText(e: Entry): string {
   const what = q(e)
   let t: string
-  if (e.loop === 'cross') t = `Different commands keep failing with "${e.sample.slice(0, 60)}". Fix the cause in the code instead of trying another command.`
-  else if (e.loop === 'undo') t = `Edits to ${e.sample} kept undoing each other. Decide which version is right and why before editing it again.`
-  else if (e.loop === 'retest') t = `${what} kept failing the same way after each fix. Find the cause from the failure before the next edit.`
-  else if (e.loop === 'reread') t = `${e.sample} was re-read without changes. Use what was already read instead of reading it again.`
+  // The exact error will not recur in a later session; the habit will.
+  if (e.loop === 'cross') t = 'When several different commands fail with the same error, fix what the error names instead of trying another command.'
+  else if (e.loop === 'undo') t = `Edits to ${e.sample} have undone each other before. ${advice(e)}`
+  else if (e.loop === 'retest') t = `${what} has kept failing the same way after fixes before. ${advice(e)}`
+  else if (e.loop === 'reread') t = `${e.sample} has been re-read without changes before. ${advice(e)}`
   else if (e.corrections > 0 && !wasLoop(e)) t = `${what} was rejected or interrupted. Do not repeat it; ask what to do instead.`
   else if (e.paged && e.errors < e.count) t = `${what} was re-run with different limits; ask for the full output once instead of paging.`
   else {
@@ -301,7 +317,7 @@ export function ruleText(e: Entry): string {
 /** The one-line note shown to the model right after a result that continues a loop. */
 export function liveHint(e: Entry): string {
   const n = loopSize(e)
-  if (e.loop) return `Lessons: ${callOf(e)} ${loopPhrase(e, n)}. ${ruleText(e)}`
+  if (e.loop) return `Lessons: ${callOf(e)} ${loopPhrase(e, n)}. ${advice(e)}`
   const kind = isRefetch(e) ? `re-run ${n} times with different limits` : `failed ${n} times in a row with the same error`
   return `Lessons: this call has ${kind}. ${ruleText(e)}`
 }
@@ -407,7 +423,11 @@ export function propose(map: Map<string, Entry>, taken: Set<string>, turns: numb
       why: whyText(e, kind, n, saved),
     })
   }
-  return out.sort((a, b) => b.netJit - a.netJit)
+  // Loops of one kind can share a rule's wording (every same-error loop does): propose it once.
+  const seen = new Set<string>()
+  return out
+    .sort((a, b) => b.netJit - a.netJit)
+    .filter(p => !taken.has(p.text) && !seen.has(p.text) && seen.add(p.text))
 }
 
 /** The reason a pattern became a proposal, from what was measured. */
@@ -493,11 +513,11 @@ export function refsOf(text: string): { paths: string[]; cmds: string[] } {
   const paths: string[] = []
   const cmds: string[] = []
   for (const m of text.matchAll(REF)) {
-    const t = m[1].trim()
+    const t = (m[1] ?? '').trim()
     if (!t) continue
     if (looksPath(t) && !/\s/.test(t)) paths.push(t.replace(/^\.\//, ''))
     else {
-      const w = t.split(/\s+/)[0]
+      const w = t.split(/\s+/)[0] ?? ''
       if (/^[a-z][\w.-]*$/i.test(w)) cmds.push(w)
     }
   }
@@ -595,8 +615,9 @@ export function sanitizeRules(v: unknown): Rule[] {
   return out.slice(0, 100)
 }
 
-export type History = { sessions: number; turns: number[]; trend: Array<{ w: number; r: boolean }>; used: Record<string, number>; kept: string[]; seen: Record<string, Seen> }
-export const emptyHistory = (): History => ({ sessions: 0, turns: [], trend: [], used: {}, kept: [], seen: {} })
+/** `dismissed` holds proposal ids the person dismissed, so the same pattern is not proposed again in later sessions. */
+export type History = { sessions: number; turns: number[]; trend: Array<{ w: number; r: boolean }>; used: Record<string, number>; kept: string[]; dismissed: string[]; seen: Record<string, Seen> }
+export const emptyHistory = (): History => ({ sessions: 0, turns: [], trend: [], used: {}, kept: [], dismissed: [], seen: {} })
 
 export function sanitizeHistory(v: unknown): History {
   const h = emptyHistory()
@@ -613,6 +634,7 @@ export function sanitizeHistory(v: unknown): History {
     for (const [k, n] of Object.entries(o.used as Record<string, unknown>)) if (typeof n === 'number' && Object.keys(h.used).length < 400) h.used[k] = n
   }
   if (Array.isArray(o.kept)) h.kept = o.kept.filter((x): x is string => typeof x === 'string').slice(-100)
+  if (Array.isArray(o.dismissed)) h.dismissed = o.dismissed.filter((x): x is string => typeof x === 'string').slice(-200)
   return h
 }
 
@@ -698,6 +720,10 @@ export function sanitizeEntries(v: unknown): Entry[] {
 // different commands, edits that undo each other, a failure that survives each fix, and re-reads.
 const LOOP_KINDS: LoopKind[] = ['cross', 'undo', 'retest', 'reread']
 const EDIT_WINDOW = 12
+/** Calls without a new step after which a live loop counts as over. */
+const LIVE_CALLS = 10
+/** Most keys kept in each tracking map; the oldest go first. */
+const MAX_TRACKED = 300
 /** Calls after which an unbroken same-error or re-read streak is let go. */
 const STALE_CALLS = 40
 const SIGNAL = /\b(error|exception|fail(?:ed|ure|s)?|cannot|can't|not found|denied|invalid|missing|undefined|panic|traceback)\b|✗|✕|×/i
@@ -714,9 +740,11 @@ export type PatternState = {
   runs: Map<string, { lines: string[]; edits: number }>
   /** Each file range's last read (call number) and reads since it last changed. */
   reads: Map<string, { at: number; n: number }>
+  /** Call number of each live loop's latest step, so a loop that has gone quiet ends. */
+  live: Map<string, number>
 }
 
-export const newPatterns = (): PatternState => ({ calls: 0, edits: 0, byFile: new Map(), errs: new Map(), runs: new Map(), reads: new Map() })
+export const newPatterns = (): PatternState => ({ calls: 0, edits: 0, byFile: new Map(), errs: new Map(), runs: new Map(), reads: new Map(), live: new Map() })
 
 const clean = (l: string) => l.replace(/\x1b\[[0-9;]*m/g, '').replace(/\b\d+(?:\.\d+)?(?:ms|s)?\b/g, '#').replace(/\s+/g, ' ').trim().slice(0, 160)
 
@@ -746,6 +774,14 @@ const contentKey = (s: string) => `${s.length}:${idOf(s)}${idOf(s.split('').reve
 /** Folds one finished call into the cross-call loops; returns the loop entries it advanced. */
 export function trackPatterns(st: PatternState, map: Map<string, Entry>, c: Call): Entry[] {
   st.calls++
+  // Loops restored from the store predate this state, and nothing here could ever end them.
+  if (st.calls === 1) for (const e of map.values()) if (e.loop) e.streak = 0
+  for (const [sig, at] of st.live) {
+    if (st.calls - at <= LIVE_CALLS) continue
+    st.live.delete(sig)
+    const e = map.get(sig)
+    if (e) e.streak = 0
+  }
   const t = c.tool.toLowerCase()
   const d = describe(c.tool, c.input)
   const touched: Entry[] = []
@@ -760,11 +796,13 @@ export function trackPatterns(st: PatternState, map: Map<string, Entry>, c: Call
     evidence(e, c, ev)
     e.peak = Math.max(e.peak, loopSize(e))
     map.set(sig, e)
+    st.live.set(sig, st.calls)
     touched.push(e)
   }
   const stop = (sig: string) => {
     const e = map.get(sig)
     if (e) e.streak = 0
+    st.live.delete(sig)
   }
   const path = str(c.input.file_path)
 
@@ -776,7 +814,7 @@ export function trackPatterns(st: PatternState, map: Map<string, Entry>, c: Call
     const list = st.byFile.get(path) ?? []
     const pairs =
       t === 'write'
-        ? [{ from: list.filter(p => p.write).at(-1)?.to ?? '', to: contentKey(str(c.input.content)), write: true }]
+        ? [{ from: list.at(-1)?.write ? list.at(-1)!.to : '', to: contentKey(str(c.input.content)), write: true }]
         : (t === 'multiedit' && Array.isArray(c.input.edits) ? (c.input.edits as Record<string, unknown>[]) : [c.input]).map(x => ({
             from: str(x.old_string).trim(),
             to: str(x.new_string).trim(),
@@ -789,7 +827,8 @@ export function trackPatterns(st: PatternState, map: Map<string, Entry>, c: Call
         : list.some(o => !o.write && o.from === p.to && o.to === p.from)
       list.push({ ...p, revert })
       if (list.length > EDIT_WINDOW) list.shift()
-      if (revert) {
+      if (!revert) stop(`undo:${path}`)
+      else {
         const n = 1 + list.filter(o => o.revert).length
         bump(`undo:${path}`, 'undo', c.tool === 'Write' ? 'Write' : 'Edit', path, n, p.write ? '(whole file)' : p.to.slice(0, 120), `${tag(c.turn)}  ${c.tool}  ${path}  → undid an earlier edit`)
       }
@@ -813,7 +852,7 @@ export function trackPatterns(st: PatternState, map: Map<string, Entry>, c: Call
   if (t === 'bash') {
     const cmd = str(c.input.command)
     for (const k of [...st.reads.keys()]) {
-      const base = k.split('|')[0].replace(/^.*\//, '')
+      const base = (k.split('|')[0] ?? '').replace(/^.*\//, '')
       if (base && cmd.includes(base)) {
         st.reads.delete(k)
         stop(`reread:${k}`)
@@ -824,7 +863,8 @@ export function trackPatterns(st: PatternState, map: Map<string, Entry>, c: Call
   // The same error from different commands.
   if (c.isError && categorize(c.text) !== 'user_rejected') {
     const line = signalLine(c.text)
-    const k = errKey(clean(line))
+    // `cat: x: No such file` and `head: x: No such file` are one error: drop the program's own name.
+    const k = errKey(clean(line).replace(/^[\w./-]+:\s+(?=\S)/, ''))
     if (k.length >= 12 && !GENERIC.test(k)) {
       const old = st.errs.get(k)
       const rec = old && st.calls - old.at <= STALE_CALLS ? old : { n: 0, sigs: [], at: 0 }
@@ -833,7 +873,7 @@ export function trackPatterns(st: PatternState, map: Map<string, Entry>, c: Call
       if (!rec.sigs.includes(d.sig)) rec.sigs.push(d.sig)
       st.errs.set(k, rec)
       if (rec.sigs.length >= 2) {
-        bump(`cross:${k}`, 'cross', c.tool, line.slice(0, 100), rec.n, d.sig, `${tag(c.turn)}  ${c.tool}  ${d.sample}  → ${line.slice(0, 80)}`)
+        bump(`cross:${k}`, 'cross', c.tool, line.replace(/^[\w./-]+:\s+(?=\S)/, '').slice(0, 100), rec.n, d.sig, `${tag(c.turn)}  ${c.tool}  ${d.sample}  → ${line.slice(0, 80)}`)
         const e = map.get(`cross:${k}`)!
         // Name every command, including those that failed before the loop had an entry.
         for (const s2 of rec.sigs) if (!e.variants.includes(s2) && e.variants.length < MAX_VARIANTS) e.variants.push(s2)
@@ -862,6 +902,13 @@ export function trackPatterns(st: PatternState, map: Map<string, Entry>, c: Call
     } else if (!c.isError) {
       st.runs.delete(d.sig)
       stop(sig)
+    }
+  }
+  for (const m of [st.reads, st.errs, st.runs, st.byFile] as Map<string, unknown>[]) {
+    // Maps keep insertion order, so the first keys are the oldest.
+    for (const k of m.keys()) {
+      if (m.size <= MAX_TRACKED) break
+      m.delete(k)
     }
   }
   return touched

@@ -1,11 +1,15 @@
 import { expect, test } from 'claude-code/testing'
 
 import { len } from './hooks/layout'
-import { crossesCold, derive, whatIf } from './hooks/model'
+import { cardFor, crossesCold, derive, levelOf, resultNote, sanitizeHistory, sanitizeLens, shouldShowBand, spinnerNote, whatIf } from './hooks/model'
 import { ctxBand, ctxPane } from './hooks/terminal'
-import { stackedBarSvg, rowBarSvg } from './hooks/svg'
 import type { PaneState } from './hooks/terminal'
+import { miniStackSvg, rowBarSvg, sparkSvg, stackedBarSvg, trendTopPct } from './hooks/svg'
 import type { Lens, Point } from './types'
+import { ctxBandDesktop, ctxPaneDesktop } from './hooks/desktop'
+import { formatLine } from './hooks/log'
+import { bump, emptyStats, note, sanitizeStats, summarize } from './hooks/stats'
+import { ctxCard } from './hooks/card'
 
 const K = 1000
 const lens = (total: number, billing: 'api' | 'sub' = 'api', model = 'claude-opus-5-5'): Lens => {
@@ -119,17 +123,17 @@ test('trend marks a compaction and reports growth', () => {
 })
 
 // ---- desktop trees ---------------------------------------------------------------------
-import { ctxBandDesktop, ctxPaneDesktop } from './hooks/desktop'
-import { miniStackSvg, rowBarSvg, sparkSvg, stackedBarSvg } from './hooks/svg'
 
-type Node = { tag: string; props: Record<string, unknown>; kids: unknown[] } | string | number | false | null | undefined
+// An element as both test runners build it: `props` is absent when none were given.
+type Node = { type: string; props?: Record<string, unknown>; children: unknown[] } | string | number | false | null | undefined
 const el = { Box: 'Box', Text: 'Text', Button: 'Button', Svg: 'Svg' } as never
 const flat = (n: Node | Node[]): string => {
   if (n === null || n === undefined || n === false) return ''
   if (typeof n === 'string' || typeof n === 'number') return String(n)
   if (Array.isArray(n)) return n.map(flat).join(' ')
-  const own = n.tag === 'Button' ? String(n.props.label ?? '') : n.tag === 'Svg' ? `[svg:${n.props.alt}]` : ''
-  return `${own} ${(n.kids as Node[]).map(flat).join(' ')}`
+  const pr = n.props ?? {}
+  const own = n.type === 'Button' ? String(pr.label ?? '') : n.type === 'Svg' ? `[svg:${pr.alt}]` : ''
+  return `${own} ${((n.children ?? []) as Node[]).map(flat).join(' ')}`
 }
 const acts = new Proxy({} as Record<string, () => void>, { get: () => () => {} })
 
@@ -224,7 +228,6 @@ test('svg builders emit one well-formed document each', () => {
 })
 
 // ---- state surviving a hot reload from an earlier version -------------------------------
-import { sanitizeHistory, sanitizeLens } from './hooks/model'
 
 test('state from the previous version is ignored, not rendered', () => {
   const old = { rows: [], items: [], messages: [], servers: [], total: 400 * K, max: 1000 * K, percent: 40, model: 'm', mode: 'api', limitPct: null }
@@ -237,8 +240,6 @@ test('state from the previous version is ignored, not rendered', () => {
 })
 
 // ---- logging and local metrics ---------------------------------------------------------
-import { formatLine } from './hooks/log'
-import { bump, emptyStats, note, sanitizeStats, summarize } from './hooks/stats'
 
 test('log lines are single-line key=value with no free text', () => {
   const l = formatLine('context-lens', 'info', 'measure', { total: 412000, model: 'claude opus', ok: true, ms: 8.12345 })
@@ -270,8 +271,6 @@ test('compact offer states what it frees and stays quiet when dismissed', () => 
 })
 
 // ---- in-the-moment flow -----------------------------------------------------------------
-import { cardFor, levelOf, resultNote, shouldShowBand, spinnerNote } from './hooks/model'
-import { ctxCard } from './hooks/card'
 
 test('a card is placed once per level crossed: 80%, 90%, then autocompact', () => {
   const h = hist(300 * K, 842 * K)
@@ -331,7 +330,6 @@ test('a clock tick redraws only when the cold flag flips', () => {
 })
 
 // ---- trend scale ------------------------------------------------------------------------
-import { trendTopPct } from './hooks/svg'
 
 const low = (n = 2): Point[] => Array.from({ length: n }, (_, i) => ({ total: (28 + 2 * i) * K, overhead: 25 * K, isCompaction: false }))
 

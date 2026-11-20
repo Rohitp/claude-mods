@@ -12,6 +12,9 @@ type El = DesktopEl
 
 const GL: Record<string, string> = { failure: '✕ failure', loop: '↻ loop', correction: '↩ correction' }
 const isApi = (v: View) => v.mode === 'api' && v.price !== null
+const noop = () => {}
+/** A named action, or nothing when the view has no such action. */
+const act = (acts: Acts, k: string) => acts[k] ?? noop
 const usd = (t: number, price: number | null): string => {
   if (price === null) return ''
   const x = (Math.abs(t) * price) / 1e6
@@ -25,8 +28,8 @@ export function lessonsBandDesktop(el: El, v: View, acts: Acts) {
   const { Box, Text, Button } = el
   const live = v.loops.find(l => l.live)
   const hidden = !live && (v.props.length === 0 || v.props.length <= v.ui.later)
-  if (hidden) return null
   const p = v.props[0]
+  if (hidden || (!live && !p)) return null
   // Fixed parts never shrink or wrap; only the middle text gives way, cut with an ellipsis.
   const fixed = (key: string, kid: JSX.Element) => (
     <Box key={key} flexShrink={0}>
@@ -40,14 +43,14 @@ export function lessonsBandDesktop(el: El, v: View, acts: Acts) {
   )
   const head = live
     ? [fixed('tag', <Text bold color="warning">loop caught</Text>), middle(`${live.call} ${live.what}`)]
-    : [fixed('n', <Text><Text bold color="claude">{v.props.length}</Text> to review</Text>), middle(`${GL[p.kind].split(' ')[0]} ${p.text}`)]
+    : [fixed('n', <Text><Text bold color="claude">{v.props.length}</Text> to review</Text>), middle(`${(GL[p!.kind] ?? '').split(' ')[0]} ${p!.text}`)]
   const cost = live ? (
     <Text>
       {fkd(live.wasted)} wasted <Text dimColor>est.{isApi(v) ? ` (${usd(live.wasted, v.price)})` : ''}</Text>
     </Text>
   ) : (
     <Text>
-      net <Text bold color={netColor(p.netJit)}>{sg(p.netJit)}</Text> <Text dimColor>est.{isApi(v) ? ` (${usd(p.netJit, v.price)})` : ''}</Text>
+      net <Text bold color={netColor(p!.netJit)}>{sg(p!.netJit)}</Text> <Text dimColor>est.{isApi(v) ? ` (${usd(p!.netJit, v.price)})` : ''}</Text>
     </Text>
   )
   return (
@@ -55,8 +58,8 @@ export function lessonsBandDesktop(el: El, v: View, acts: Acts) {
       {fixed('label', <Text dimColor>lessons</Text>)}
       {head}
       {fixed('cost', cost)}
-      {fixed('review', <Button key="review" label="[ Review ]" onPress={acts.review} />)}
-      {fixed('later', <Button key="later" label="Later" onPress={acts.later} />)}
+      {fixed('review', <Button key="review" label="[ Review ]" onPress={act(acts, "review")} />)}
+      {fixed('later', <Button key="later" label="Later" onPress={act(acts, "later")} />)}
     </Box>
   )
 }
@@ -68,14 +71,14 @@ export function lessonsPaneDesktop(el: El, v: View, acts: Acts) {
   const tabs = (
     <Box key="tabs" gap={1}>
       {TABS.map((t, i) => (
-        <Button key={t} label={i === v.ui.tab ? `[ ${t} ${counts[i]} ]` : `${t} ${counts[i]}`} onPress={acts[`tab:${i}`]} />
+        <Button key={t} label={i === v.ui.tab ? `[ ${t} ${counts[i]} ]` : `${t} ${counts[i]}`} onPress={act(acts, `tab:${i}`)} />
       ))}
     </Box>
   )
   const note = v.ui.msg && v.ui.view === 'list' && (
     <Box key="msg" gap={1}>
       <Text>{v.ui.msg}</Text>
-      {v.canUndo && <Button key="undo" label="Undo" onPress={acts.undo} />}
+      {v.canUndo && <Button key="undo" label="Undo" onPress={act(acts, "undo")} />}
     </Box>
   )
   return (
@@ -118,7 +121,7 @@ function proposals(el: El, v: View, acts: Acts) {
         return (
           <Box key={p.id} flexDirection="column" borderStyle="round" paddingX={1} gap={1}>
             <Box gap={1}>
-              <Button key={`exp:${p.id}`} label={open ? '−' : '+'} onPress={acts[`exp:${p.id}`]} />
+              <Button key={`exp:${p.id}`} label={open ? '−' : '+'} onPress={act(acts, `exp:${p.id}`)} />
               <Text dimColor>{GL[p.kind]}</Text>
               <Text dimColor={neg} wrap="truncate">{p.text}</Text>
             </Box>
@@ -149,7 +152,7 @@ function proposals(el: El, v: View, acts: Acts) {
                 <Box flexDirection="column" gap={1}>
                   <Box flexDirection="column">
                     <Box gap={1}>
-                      <Button key={`jit:${p.id}`} label="Just in time" onPress={acts[`jit:${p.id}`]} />
+                      <Button key={`jit:${p.id}`} label="Just in time" onPress={act(acts, `jit:${p.id}`)} />
                       <Text dimColor>carry {fkd(p.carryJit)} · net </Text>
                       <Text bold color={netColor(p.netJit)}>{sg(p.netJit)}</Text>
                       {!neg && <Text bold color="claude">Recommended</Text>}
@@ -158,7 +161,7 @@ function proposals(el: El, v: View, acts: Acts) {
                   </Box>
                   <Box flexDirection="column">
                     <Box gap={1}>
-                      <Button key={`alw:${p.id}`} label="Always on" onPress={acts[`alw:${p.id}`]} />
+                      <Button key={`alw:${p.id}`} label="Always on" onPress={act(acts, `alw:${p.id}`)} />
                       <Text dimColor>carry {fkd(p.carryAlways)} · net </Text>
                       <Text bold color={netColor(p.netAlways)}>{sg(p.netAlways)}</Text>
                     </Box>
@@ -167,8 +170,8 @@ function proposals(el: El, v: View, acts: Acts) {
                 </Box>
                 {neg && <Text color="warning">Costs more than it saves at this session's rate (est.). Dismiss is probably right.</Text>}
                 <Box gap={1}>
-                  <Button key={`dis:${p.id}`} label="Dismiss" onPress={acts[`dis:${p.id}`]} />
-                  <Button key={`pol:${p.id}`} label="Polish wording" onPress={acts[`pol:${p.id}`]} />
+                  <Button key={`dis:${p.id}`} label="Dismiss" onPress={act(acts, `dis:${p.id}`)} />
+                  <Button key={`pol:${p.id}`} label="Polish wording" onPress={act(acts, `pol:${p.id}`)} />
                 </Box>
                 <Text dimColor>Only Polish wording sends anything: the rule and its evidence, to the model. Otherwise nothing leaves this machine.</Text>
               </Box>
@@ -216,7 +219,7 @@ function active(el: El, v: View, acts: Acts) {
         <Box key={a.id} flexDirection="column" borderStyle="round" paddingX={1}>
           <Box justifyContent="space-between" gap={1}>
             <Text wrap="truncate">{a.text}</Text>
-            <Button key={`ret:${a.id}`} label="Retire" onPress={acts[`ret:${a.id}`]} />
+            <Button key={`ret:${a.id}`} label="Retire" onPress={act(acts, `ret:${a.id}`)} />
           </Box>
           <Text dimColor>{a.where}</Text>
           <Text color={STATUS[a.st][1]}>{STATUS[a.st][0]} {a.a} · {a.b}</Text>
@@ -255,7 +258,7 @@ function loopsTab(el: El, v: View, acts: Acts) {
               <Text>{l.note}</Text>
             </Box>
           )}
-          {l.proposal && <Button key={`view:${l.proposal}`} label="View proposal" onPress={acts[`view:${l.proposal}`]} />}
+          {l.proposal && <Button key={`view:${l.proposal}`} label="View proposal" onPress={act(acts, `view:${l.proposal}`)} />}
         </Box>
       ))}
       {v.trend.length > 0 && (
@@ -300,8 +303,8 @@ function memory(el: El, v: View, acts: Acts) {
         <Box justifyContent="space-between">
           <Text dimColor>{fkd(c.tokens * Math.max(1, v.turns))}/session{isApi(v) ? ` · ${usd(c.tokens * Math.max(1, v.turns), v.price)}` : ''} est.</Text>
           <Box gap={1}>
-            <Button key={`rm:${c.id}`} label="Remove…" onPress={acts[`rm:${c.id}`]} />
-            <Button key={`keep:${c.id}`} label="Keep" onPress={acts[`keep:${c.id}`]} />
+            <Button key={`rm:${c.id}`} label="Remove…" onPress={act(acts, `rm:${c.id}`)} />
+            <Button key={`keep:${c.id}`} label="Keep" onPress={act(acts, `keep:${c.id}`)} />
           </Box>
         </Box>
       )}
@@ -345,8 +348,8 @@ function confirmDesktop(el: El, v: View, acts: Acts) {
         <Text>Carry {fkd(c)}/session · net <Text bold color={netColor(n)}>{sg(n)}</Text> <Text dimColor>est.{isApi(v) ? ` (${usd(n, v.price)})` : ''}</Text></Text>
         <Text dimColor>Nothing leaves this machine.</Text>
         <Box gap={1}>
-          <Button key="write" label="[ Write rule ]" onPress={acts.write} />
-          <Button key="back" label="Back" onPress={acts.back} />
+          <Button key="write" label="[ Write rule ]" onPress={act(acts, "write")} />
+          <Button key="back" label="Back" onPress={act(acts, "back")} />
         </Box>
       </Box>
     )
@@ -357,8 +360,8 @@ function confirmDesktop(el: El, v: View, acts: Acts) {
         <Text bold color="success">✓ {u.msg || 'Written'}</Text>
         <Text>Active from your next turn. Undo reverses it; it is available until the next turn.</Text>
         <Box gap={1}>
-          <Button key="undo" label="Undo" onPress={acts.undo} />
-          <Button key="next" label="[ Next proposal ]" onPress={acts.next} />
+          <Button key="undo" label="Undo" onPress={act(acts, "undo")} />
+          <Button key="next" label="[ Next proposal ]" onPress={act(acts, "next")} />
         </Box>
       </Box>
     )
@@ -368,8 +371,8 @@ function confirmDesktop(el: El, v: View, acts: Acts) {
         <Text bold color="error">✕ Couldn't write</Text>
         <Text>{u.msg || 'The write failed.'} Nothing changed. The proposal is still here.</Text>
         <Box gap={1}>
-          <Button key="write" label="[ Try again ]" onPress={acts.write} />
-          <Button key="back" label="Back" onPress={acts.back} />
+          <Button key="write" label="[ Try again ]" onPress={act(acts, "write")} />
+          <Button key="back" label="Back" onPress={act(acts, "back")} />
         </Box>
       </Box>
     )
@@ -379,8 +382,8 @@ function confirmDesktop(el: El, v: View, acts: Acts) {
         <Text bold>Polish wording</Text>
         <Text>Sends the rule text and its {Math.min(3, p.ev.length)} evidence lines to the model to tighten the wording. Nothing else from this session is sent.</Text>
         <Box gap={1}>
-          <Button key="send" label="[ Send ]" onPress={acts.send} />
-          <Button key="back" label="Cancel" onPress={acts.back} />
+          <Button key="send" label="[ Send ]" onPress={act(acts, "send")} />
+          <Button key="back" label="Cancel" onPress={act(acts, "back")} />
         </Box>
       </Box>
     )
@@ -398,8 +401,8 @@ function confirmDesktop(el: El, v: View, acts: Acts) {
           <Text>{u.polished}</Text>
         </Box>
         <Box gap={1}>
-          <Button key="usepol" label="[ Use polished ]" onPress={acts.usepol} />
-          <Button key="back" label="Keep mine" onPress={acts.back} />
+          <Button key="usepol" label="[ Use polished ]" onPress={act(acts, "usepol")} />
+          <Button key="back" label="Keep mine" onPress={act(acts, "back")} />
         </Box>
       </Box>
     )
@@ -414,8 +417,8 @@ function confirmDesktop(el: El, v: View, acts: Acts) {
         </Box>
         <Text dimColor>{a.where.includes('always on') ? 'The line is removed from CLAUDE.local.md.' : 'It stops being shown to the model.'}</Text>
         <Box gap={1}>
-          <Button key="retYes" label="[ Retire ]" onPress={acts.retYes} />
-          <Button key="back" label="Keep" onPress={acts.back} />
+          <Button key="retYes" label="[ Retire ]" onPress={act(acts, "retYes")} />
+          <Button key="back" label="Keep" onPress={act(acts, "back")} />
         </Box>
       </Box>
     )
@@ -434,8 +437,8 @@ function confirmDesktop(el: El, v: View, acts: Acts) {
         <Text>Frees {fkd(r.tokens)}/turn · {fkd(r.tokens * Math.max(1, v.turns))}/session <Text dimColor>est.</Text></Text>
         <Text dimColor>A copy is kept in Lessons' local store so you can undo this until the next turn.</Text>
         <Box gap={1}>
-          <Button key="rmYes" label={`[ Remove ${r.lines.length} line${r.lines.length === 1 ? '' : 's'} ]`} onPress={acts.rmYes} />
-          <Button key="back" label="Back" onPress={acts.back} />
+          <Button key="rmYes" label={`[ Remove ${r.lines.length} line${r.lines.length === 1 ? '' : 's'} ]`} onPress={act(acts, "rmYes")} />
+          <Button key="back" label="Back" onPress={act(acts, "back")} />
         </Box>
       </Box>
     )

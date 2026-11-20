@@ -102,6 +102,7 @@ async function ensureLoaded($: EngineInterface) {
   rules = sanitizeRules(await $.store.get(`rules:${projKey}`))
   history = sanitizeHistory(await $.store.get(`history:${projKey}`))
   for (const k of history.kept) kept.add(k)
+  for (const k of history.dismissed) dismissed.add(k)
   const saved = (await $.store.get(`session:${projKey}`)) as { id?: string; entries?: unknown; used?: unknown } | null
   if (saved && saved.id === (await $.session.id())) {
     for (const e2 of sanitizeEntries(saved.entries)) if (!entries.has(e2.sig)) entries.set(e2.sig, e2)
@@ -112,7 +113,7 @@ async function ensureLoaded($: EngineInterface) {
 
 async function save($: EngineInterface) {
   await $.store.set(`rules:${projKey}`, rules)
-  await $.store.set(`history:${projKey}`, { ...history, kept: [...kept].slice(-100) })
+  await $.store.set(`history:${projKey}`, { ...history, kept: [...kept].slice(-100), dismissed: [...dismissed].slice(-200) })
 }
 
 /** The session's tracked calls, kept so a reload or a resume does not start from nothing. */
@@ -174,7 +175,7 @@ async function buildView($: EngineInterface): Promise<View> {
   const ui = sanitizeUi(await read($, uiAtom))
   const turns = await $.session.turns()
   const perSession = Math.max(turns, turnsPerSession(history))
-  const taken = new Set(rules.map(r => r.sig))
+  const taken = new Set([...rules.map(r => r.sig), ...rules.map(r => r.text)])
   const props: Proposal[] = propose(entries, taken, perSession, dismissed).map(p => {
     const t = override.get(p.id)
     if (t === undefined) return p
@@ -295,6 +296,7 @@ async function doUndo($: EngineInterface) {
     await setUi($, { view: 'list', tab: 0, open: u.id, msg: '' })
   } else if (u.kind === 'dismiss') {
     dismissed.delete(u.id)
+    await save($)
     await setUi($, { view: 'list', tab: 0, open: u.id, msg: '' })
   } else if (u.kind === 'retire' && u.rule) {
     rules = [...rules, u.rule]
@@ -397,6 +399,7 @@ function actionsFor($: EngineInterface, v: View, openPane: () => void): Acts {
     acts[`dis:${p.id}`] = () => {
       dismissed.add(p.id)
       undo = { kind: 'dismiss', id: p.id }
+      void save($)
       void setUi($, { open: null, msg: 'Dismissed.' })
     }
   }
@@ -520,7 +523,7 @@ export const register: Register = (on, options) => {
   on('session.compact', async ($, e, next) => {
     patternsCompacted(patterns, entries)
     return next(e)
-  })
+  }).catch(($, e, next) => next(e))
 
   on('session.measure', async ($, e, next) => {
     billing = e.rateLimits.length > 0 ? 'sub' : 'api'
@@ -568,7 +571,7 @@ export const register: Register = (on, options) => {
       log($, 'error', { where: 'tool.call', msg: String(err).slice(0, 80) })
       return ran
     }
-  }).catch(($, e, next) => (next.called ? next(e) : next(e)))
+  }).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'lessons' }, async ($, e) => {
     await ensureLoaded($)

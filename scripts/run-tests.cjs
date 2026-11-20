@@ -1,7 +1,8 @@
 // Minimal harness: transpile TS/TSX on require, shim 'claude-code/testing', run *.test.ts.
 const fs = require('fs'), path = require('path'), Module = require('module')
 const ts = require(path.join(__dirname, '..', 'node_modules', 'typescript'))
-global.h = (tag, props, ...kids) => ({ tag, props: props || {}, kids })
+// The same element shape `claude plugin test` builds, so tests pass under both runners.
+global.h = (type, props, ...kids) => ({ type, ...(props ? { props } : {}), ...(kids.length ? { children: kids.flat(Infinity) } : {}) })
 const origResolve = Module._resolveFilename
 const tests = []
 const shim = {

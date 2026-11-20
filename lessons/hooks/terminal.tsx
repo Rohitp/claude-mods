@@ -66,7 +66,7 @@ export function lessonsBand(v: View, w: number, canReview = w >= 110): Seg[] | n
   const right = docked ? [Bt('Review', 'review', true), S(' '), Bt('Later', 'later')] : [Bt('Later', 'later')]
   const hint: Flex[] = docked ? [] : [{ p: 7, segs: [S('widen to review', 'dim')] }]
   const lw = w - len(right) - 2
-  let items: Flex[]
+  let items: Flex[] = []
   if (live) {
     items = [
       { p: 0, segs: [S('lessons', 'dim')] },
@@ -75,13 +75,13 @@ export function lessonsBand(v: View, w: number, canReview = w >= 110): Seg[] | n
       { p: 0, segs: [S(fkd(live.wasted), 'fg'), S(' wasted est.', 'dim')] },
     ]
     if (isApi(v)) items.push({ p: 9, tight: true, segs: [S(`(${ap(live.wasted, v.price)})`, 'dim')] })
-  } else {
+  } else if (top) {
     const p = top
     items = [
       { p: 0, segs: [S('lessons', 'dim')] },
       { p: 0, tight: true, segs: [S(String(v.props.length), 'accent b')] },
       { p: 8, tight: true, segs: [S('to review', 'fg')] },
-      { flex: `${GL[p.kind]} ${p.text}`, min: 24 },
+      { flex: `${GL[p.kind] ?? ''} ${p.text}`, min: 24 },
       { p: 0, segs: [S('net ', 'dim'), S(sg(p.netJit), p.netJit < 0 ? 'warn b' : 'ok b'), S(' est.', 'dim')] },
     ]
     if (isApi(v)) items.push({ p: 9, tight: true, segs: [S(`(${ap(p.netJit, v.price)})`, 'dim')] })
@@ -133,7 +133,7 @@ function metaLine(v: View, p: Proposal, iw: number): Seg[] {
     join(parts(), '  '),
     join(parts(), ' '),
   ]
-  return cands.find(c => len(c) <= iw - 6) ?? cands[3]
+  return cands.find(c => len(c) <= iw - 6) ?? cands[3] ?? []
 }
 
 function deliver(v: View, p: Proposal, iw: number): Seg[][] {
@@ -161,7 +161,7 @@ function proposals(v: View, iw: number): Seg[][] {
   v.props.forEach((p, i) => {
     const open = p.id === v.openId
     const neg = p.netJit < 0
-    const head: Seg[] = [Sm(open ? '−' : '+', `exp:${p.id}`), S(' '), S(GL[p.kind], neg ? 'dim' : 'fg'), S(' ')]
+    const head: Seg[] = [Sm(open ? '−' : '+', `exp:${p.id}`), S(' '), S(GL[p.kind] ?? '', neg ? 'dim' : 'fg'), S(' ')]
     b.push([...head, S(trunc(p.text, iw - len(head)), neg ? 'dim' : 'fg')])
     b.push([S('      '), ...metaLine(v, p, iw)])
     if (open) {
@@ -229,7 +229,7 @@ function active(v: View, iw: number): Seg[][] {
 
 function spark(vals: number[], n: number): string[] {
   const mx = Math.max(1, ...vals)
-  return vals.map(x => ' ▁▂▃▄▅▆▇█'[Math.max(1, Math.round((x / mx) * 8))].repeat(n))
+  return vals.map(x => (' ▁▂▃▄▅▆▇█'[Math.max(1, Math.round((x / mx) * 8))] ?? '█').repeat(n))
 }
 
 function loopsTab(v: View, iw: number): Seg[][] {
@@ -269,13 +269,13 @@ function trendBlock(v: View, iw: number): Seg[][] {
   const sk = spark(vals, sw)
   const row: Seg[] = [S('  ')]
   sk.forEach((c, i) => {
-    row.push(S(c, i === sk.length - 1 ? 'accent' : v.trend[i].r ? 'ok' : 'dim'))
+    row.push(S(c, i === sk.length - 1 ? 'accent' : v.trend[i]?.r ? 'ok' : 'dim'))
     row.push(S(' '))
   })
   return [
     lr([S('Waste per session', 'fg b')], [S(`last ${vals.length}`, 'dim')], iw),
     row,
-    ...wrap(`${fkd(vals[0])} → ${fkd(vals[vals.length - 1])} (est.). Green: sessions after a rule was accepted.`, iw, 'dim'),
+    ...wrap(`${fkd(vals[0] ?? 0)} → ${fkd(vals[vals.length - 1] ?? 0)} (est.). Green: sessions after a rule was accepted.`, iw, 'dim'),
   ]
 }
 

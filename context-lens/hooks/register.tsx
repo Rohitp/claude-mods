@@ -248,10 +248,16 @@ let timer: { cancel: () => void } | null = null
 /** Opens the pane unasked when the `openOnStart` option says so. A reload finds it already up
  *  and leaves it alone; the engine keeps an unasked pane undrawn where it would not be a
  *  sidebar (a narrow terminal), so this never takes over the screen. */
+/** Set once the option has opened the pane, so a later attach doesn't reopen one the person closed. */
+let isOpenedAtStart = false
+
 async function openAtStart($: EngineInterface, how: 'widget' | 'pane'): Promise<void> {
+  if (isOpenedAtStart) return
   try {
+    // With nothing drawing yet (a -p run, an SDK host) this fails and is logged; a surface that attaches later opens it.
     if ((await $.ui.panes()).some(p => p.id === PANE)) return
     const r = await $.ui.open({ id: PANE, title: 'Context Lens', ...(how === 'widget' ? { placement: 'widget' as const } : {}) })
+    isOpenedAtStart = true
     log($, 'info', 'open.start', { how, placed: r.isPlaced })
   } catch (err) {
     log($, 'error', 'open.start', { name: err instanceof Error ? err.name : 'unknown' })
@@ -277,6 +283,13 @@ export const register: Register = (on, options) => {
     if (openOnStart === 'widget' || openOnStart === 'pane') await openAtStart($, openOnStart)
     return next(e)
   })
+
+  // The desktop app or a phone can attach after the session started.
+  on('session.attach', async ($, e, next) => {
+    const r = await next(e)
+    if (openOnStart === 'widget' || openOnStart === 'pane') await openAtStart($, openOnStart)
+    return r
+  }).catch(($, e, next) => next(e))
 
   on('session.end', async ($, e, next) => {
     await flush($, true)

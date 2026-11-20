@@ -211,7 +211,7 @@ export const register: Register = (on, options) => {
   on('prompt.submit', ($, e, next) => {
     isBusy = true
     return next(e)
-  })
+  }).catch(($, e, next) => next(e))
 
   on('prompt.edit', async ($, e, next) => {
     lastEditAt = await $.clock.now()
@@ -240,7 +240,7 @@ export const register: Register = (on, options) => {
     await update($, compactedAtom, () => at)
     log($, 'info', 'compaction', { trigger: e.trigger })
     return r
-  })
+  }).catch(($, e, next) => next(e))
 
   // A main-thread response that read or wrote the cache restarts its clock, and one that
   // rewrote most of the prefix is a bust whose cause we can often name.

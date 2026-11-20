@@ -1,21 +1,27 @@
 {
   "name": "claude-mods",
   "owner": {
-    "name": "Rohit"
+    "name": "Rohit",
+    "url": "https://github.com/Rohitp"
   },
   "plugins": [
     {
       "name": "context-lens",
-      "source": "./context-lens"
+      "source": "./context-lens",
+      "description": "Shows what fills your context window, what carrying it costs each turn, and what removing a memory file or MCP server would free."
     },
     {
       "name": "cache-guard",
-      "source": "./cache-guard"
+      "source": "./cache-guard",
+      "description": "Counts down the prompt cache, warns before it expires, and can keep it warm with cheap pings while that costs less than a miss."
     },
     {
       "name": "lessons",
       "source": "./lessons",
-      "description": "Catches repeated failures and re-fetch loops as they happen, nudges the model, and turns them into small priced rules you approve."
+      "description": "Catches loops as they happen, nudges the model out of them, and turns repeated mistakes into one-line rules you approve, each with its cost."
     }
-  ]
+  ],
+  "metadata": {
+    "description": "Three mods for Claude Code: context window, prompt cache, and loops."
+  }
 }

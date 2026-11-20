@@ -1,7 +1,21 @@
 {
   "name": "context-lens",
   "version": "0.3.0",
-  "description": "A pane and a one-line band showing what fills the context window, by category and by biggest item.",
+  "description": "Shows what fills your context window, what carrying it costs each turn, and what removing a memory file or MCP server would free.",
+  "author": {
+    "name": "Rohit",
+    "url": "https://github.com/Rohitp"
+  },
+  "homepage": "https://github.com/Rohitp/claude-mods#context-lens",
+  "repository": "https://github.com/Rohitp/claude-mods",
+  "license": "MIT",
+  "keywords": [
+    "context",
+    "tokens",
+    "cost",
+    "compaction"
+  ],
+  "icon": "./.claude-plugin/icon.png",
   "types": "./types/index.d.ts",
   "userConfig": {
     "metrics": {
