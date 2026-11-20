@@ -33,6 +33,12 @@ import {
   wastedTokens,
   wasLoop,
   redact,
+  branchFromHead,
+  carryOver,
+  mergeEntries,
+  KEEP_MS,
+  countsOf,
+  wasteSince,
   callOf,
   memFilesFrom,
   linesStill,
@@ -237,6 +243,7 @@ const view = (over: Partial<View> = {}): View => {
   const m = run([...loopCalls(), ...[0, 1].map(() => bash('cat src/lib/db.ts', 'No such file or directory', true))])
   const props = propose(m, new Set(), 60)
   return {
+    branch: 'main',
     mode: 'api',
     price: 4,
     props,
@@ -726,4 +733,61 @@ test('a proposal leads with a plain title and the file name, and its rule is nev
     // The rule wraps inside its box at narrow widths, but every word of it is there.
     expect(text.replace(/[│┌┐└┘─]/g, ' ').replace(/\s+/g, ' ').includes("use what was already read.")).toBe(true)
   }
+})
+
+// ---- one record per project and branch -----------------------------------------------------------
+test('a branch is read from git HEAD, detached or not', () => {
+  expect(branchFromHead('ref: refs/heads/main\n')).toBe('main')
+  expect(branchFromHead('ref: refs/heads/feature/login-form')).toBe('feature/login-form')
+  expect(branchFromHead('3f2a9c1d0e')).toBe('detached')
+  expect(branchFromHead('')).toBe('')
+})
+
+test('a loop from an earlier session still proposes a rule but is not live, and comes back nudged', () => {
+  const m = run([0, 1, 2].map(() => bash('cat missing.txt', 'cat: missing.txt: No such file or directory', true)))
+  const e = only(m)
+  e.hinted = 3
+  const [old] = carryOver([e])
+  expect(loopSize(old!)).toBe(0)
+  expect(wasLoop(old!)).toBe(true)
+  expect(propose(new Map([[old!.sig, old!]]), new Set(), 60).length).toBe(1)
+  // Three more failures in the new session are a live loop again, and get a note.
+  const next = new Map([[old!.sig, old!]])
+  for (let i = 0; i < 3; i++) track(next, bash('cat missing.txt', 'cat: missing.txt: No such file or directory', true))
+  expect(shouldHint(only(next))).toBe(true)
+})
+
+test('two sessions on one branch add up: neither loses its calls', () => {
+  // Both loaded entry X at 10 calls; B saved at 15, then A, having made 3 of its own, saves.
+  const a0 = only(run([bash('npm test', 'FAIL', true)]))
+  const base = new Map([[a0.sig, { ...countsOf(a0), count: 10 }]])
+  const mine = { ...a0, count: 13, lastAt: 30 }
+  const stored = { ...a0, count: 15, lastAt: 20 }
+  const merged = mergeEntries([mine], [stored], base, 40)
+  expect(merged[0]!.count).toBe(18)
+  expect(merged[0]!.lastAt).toBe(30)
+})
+
+test('entries never stamped, or older than a month, are dropped', () => {
+  const c = only(run([bash('git status', 'ok')]))
+  expect(mergeEntries([], [{ ...c, lastAt: 0 }], new Map(), 100).length).toBe(0)
+  expect(mergeEntries([], [{ ...c, lastAt: 1 }], new Map(), 1 + KEEP_MS + 1).length).toBe(0)
+  expect(mergeEntries([], [{ ...c, lastAt: 50 }], new Map(), 100).length).toBe(1)
+})
+
+test("this session's waste leaves out what another session caused", () => {
+  const m = run([0, 1, 2].map(() => bash('cat missing.txt', 'cat: missing.txt: No such file or directory', true)))
+  const e = only(m)
+  // Taken up from another session with this waste already in it, then not touched here.
+  expect(wasteSince(m, new Map([[e.sig, wastedTokens(e)]]), new Set())).toBe(0)
+  expect(wasteSince(m, new Map([[e.sig, wastedTokens(e)]]), new Set([e.sig]))).toBe(0)
+  // Created in this session: all of it is ours.
+  expect(wasteSince(m, new Map(), new Set([e.sig]))).toBe(wastedTokens(e))
+})
+
+test('the panes name the branch', () => {
+  const text = lessonsPane({ ...view(), branch: 'feature/login' }, 72).map(l => l.map(s => s.t).join('')).join('\n')
+  expect(text.includes('on feature/login')).toBe(true)
+  const none = lessonsPane({ ...view(), branch: '' }, 72).map(l => l.map(s => s.t).join('')).join('\n')
+  expect(none.includes('in this project')).toBe(true)
 })

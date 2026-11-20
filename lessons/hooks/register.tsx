@@ -26,6 +26,12 @@ import {
   matches,
   memoryCandidates,
   linesStill,
+  branchFromHead,
+  carryOver,
+  countsOf,
+  mergeEntries,
+  wasteSince,
+  KEEP_MS,
   memFilesFrom,
   missKey,
   priceOf,
@@ -47,7 +53,7 @@ import {
   wasLoop,
   wastedTokens,
 } from './model'
-import type { Cand, Entry, History, MemFile, PatternState, Proposal } from './model'
+import type { Cand, Counts, Entry, History, MemFile, PatternState, Proposal } from './model'
 import { lessonsBandDesktop, lessonsPaneDesktop } from './desktop'
 import type { DesktopEl } from './desktop'
 import { lessonsBand, lessonsPane, row, toastText } from './terminal'
@@ -81,7 +87,20 @@ const inflight = new Map<string, { tool: string; input: Record<string, unknown>;
 const usedNow = new Set<string>()
 let rules: Rule[] = []
 let history: History = emptyHistory()
-let projKey = ''
+/** This checkout: rules, history and the Memory tab follow its CLAUDE.local.md, which is per worktree. */
+let localKey = ''
+/** The repository (a worktree shares its main checkout's): loops and proposals are per repository and branch. */
+let repoKey = ''
+/** The git branch the loops and proposals belong to; '' outside a repository. */
+let branch = ''
+/** Each entry's waste when this session took it up, so the trend counts only what this session added. */
+const startWaste = new Map<string, number>()
+/** Signatures this session's own calls touched. */
+const touchedSigs = new Set<string>()
+/** This session's waste on branches it has since left. */
+let carried = 0
+/** Each entry's counts at this session's last load or save: what it has added since is merged additively. */
+let mergeBase = new Map<string, Counts>()
 /** The one load in flight or done; cleared if it fails, so the next hook tries again. */
 let loading: Promise<void> | null = null
 /** Rules retired in this session, so merging with another session's save doesn't bring them back. */
@@ -119,25 +138,92 @@ async function ensureLoaded($: EngineInterface) {
   return loading
 }
 
+/** The branch checked out where the session started, from git's own HEAD file. The session may have
+ * started in a subfolder, so the nearest `.git` above is used; a worktree's `.git` is a file naming its
+ * git folder. '' when there is no repository or it can't be read. */
+async function readBranch($: EngineInterface): Promise<string> {
+  try {
+    let dir = (await $.session.root()).replace(/\/$/, '')
+    for (let i = 0; i < 40 && dir; i++) {
+      const dotGit = `${dir}/.git`
+      if (await $.fs.exists(`${dotGit}/HEAD`)) return branchFromHead((await readText($, `${dotGit}/HEAD`)) ?? '')
+      if (await $.fs.exists(dotGit)) {
+        const link = /^gitdir:\s*(.+)$/m.exec((await readText($, dotGit)) ?? '')?.[1]?.trim()
+        if (!link) return ''
+        return branchFromHead((await readText($, `${link.startsWith('/') ? link : `${dir}/${link}`}/HEAD`)) ?? '')
+      }
+      dir = dir.slice(0, dir.lastIndexOf('/'))
+    }
+    return ''
+  } catch {
+    return ''
+  }
+}
+
+/** How the panes name the record: `on main`, or `in this project` outside git. */
+const where = (b: string) => (b ? `on ${b}` : 'in this project')
+
+const entriesKey = () => `entries:${repoKey}:${idOf(branch)}`
+const sessionKey = async ($: EngineInterface) => `session:${localKey}:${await $.session.id()}`
+
+/** This session's waste so far, on every branch it has been on. */
+const sessionOwnWaste = () => carried + wasteSince(entries, startWaste, touchedSigs)
+
+/** Takes entries into memory: one this session touched before a reload comes back as it was; any other
+ * is from another session, so only what it adds up to carries over, and its waste so far isn't ours. */
+function takeUp(list: Entry[]) {
+  for (const e of list) {
+    if (entries.has(e.sig)) continue
+    const took = touchedSigs.has(e.sig) ? e : carryOver([e])[0]!
+    entries.set(e.sig, took)
+    if (!startWaste.has(e.sig)) startWaste.set(e.sig, wastedTokens(took))
+    mergeBase.set(e.sig, countsOf(took))
+  }
+}
+
+/** Loads the branch's tracked calls, and this session's own bookkeeping if it is reloading. */
+async function loadEntries($: EngineInterface) {
+  const mine = (await $.store.get(await sessionKey($))) as { used?: unknown; start?: unknown; touched?: unknown; carried?: unknown } | null
+  if (mine) {
+    if (Array.isArray(mine.used)) for (const u of mine.used) if (typeof u === 'string') usedNow.add(u)
+    if (Array.isArray(mine.touched)) for (const t of mine.touched) if (typeof t === 'string') touchedSigs.add(t)
+    if (Array.isArray(mine.start)) for (const p of mine.start) if (Array.isArray(p) && typeof p[0] === 'string' && typeof p[1] === 'number') startWaste.set(p[0], p[1])
+    if (typeof mine.carried === 'number') carried = mine.carried
+  }
+  takeUp(sanitizeEntries(((await $.store.get(entriesKey())) as { entries?: unknown } | null)?.entries))
+}
+
 async function load($: EngineInterface) {
-  projKey = idOf(await $.session.root())
-  rules = sanitizeRules(await $.store.get(`rules:${projKey}`))
+  const root = await $.session.root()
+  localKey = idOf(root)
+  repoKey = idOf((await $.session.repo())?.root ?? root)
+  branch = await readBranch($)
+  rules = sanitizeRules(await $.store.get(`rules:${localKey}`))
   for (const r of rules) fromStore.add(r.id)
-  history = sanitizeHistory(await $.store.get(`history:${projKey}`))
+  history = sanitizeHistory(await $.store.get(`history:${localKey}`))
   for (const k of history.kept) kept.add(k)
   for (const k of history.dismissed) dismissed.add(k)
-  const saved = (await $.store.get(`session:${projKey}`)) as { id?: string; entries?: unknown; used?: unknown } | null
-  if (saved && saved.id === (await $.session.id())) {
-    for (const e2 of sanitizeEntries(saved.entries)) if (!entries.has(e2.sig)) entries.set(e2.sig, e2)
-    if (Array.isArray(saved.used)) for (const u of saved.used) if (typeof u === 'string') usedNow.add(u)
+  // The one slot every session of this checkout used to share; each session has its own now, and
+  // those of sessions not seen for KEEP_MS are dropped.
+  await $.store.delete(`session:${localKey}`).catch(() => {})
+  try {
+    const now = await $.clock.now()
+    for (const k of await $.store.keys()) {
+      if (!k.startsWith(`session:${localKey}:`)) continue
+      const at = ((await $.store.get(k)) as { at?: unknown } | null)?.at
+      if (typeof at !== 'number' || now - at > KEEP_MS) await $.store.delete(k)
+    }
+  } catch {
+    // pruning is housekeeping
   }
-  log($, 'loaded', { rules: rules.length, sessions: history.sessions, restored: entries.size })
+  await loadEntries($)
+  log($, 'loaded', { rules: rules.length, sessions: history.sessions, restored: entries.size, branch: branch ? 'yes' : 'none' })
 }
 
 /** Another session in this project may have accepted or retired rules since this one loaded: take
  * theirs, keep ours, and drop what this session retired. */
 async function mergeRules($: EngineInterface) {
-  const stored = sanitizeRules(await $.store.get(`rules:${projKey}`))
+  const stored = sanitizeRules(await $.store.get(`rules:${localKey}`))
   const there = new Set(stored.map(r => r.id))
   rules = rules.filter(r => there.has(r.id) || !fromStore.has(r.id))
   const mine = new Set(rules.map(r => r.id))
@@ -148,13 +234,59 @@ async function mergeRules($: EngineInterface) {
 
 async function save($: EngineInterface) {
   await mergeRules($)
-  await $.store.set(`rules:${projKey}`, rules)
-  await $.store.set(`history:${projKey}`, { ...history, kept: [...kept].slice(-100), dismissed: [...dismissed].slice(-200) })
+  await $.store.set(`rules:${localKey}`, rules)
+  await $.store.set(`history:${localKey}`, { ...history, kept: [...kept].slice(-100), dismissed: [...dismissed].slice(-200) })
 }
 
-/** The session's tracked calls, kept so a reload or a resume does not start from nothing. */
+/** Saves the branch's tracked calls, merged additively with what other sessions on this branch saved
+ * meanwhile, and keeps in memory only what the merged record holds. */
 async function saveSession($: EngineInterface) {
-  await $.store.set(`session:${projKey}`, { id: await $.session.id(), entries: [...entries.values()].slice(-200), used: [...usedNow].slice(0, 300) })
+  const stored = sanitizeEntries(((await $.store.get(entriesKey())) as { entries?: unknown } | null)?.entries)
+  const before = new Map([...entries].map(([k, e]) => [k, wastedTokens(e)] as const))
+  const merged = mergeEntries([...entries.values()], stored, mergeBase, await $.clock.now())
+  const own = new Map(entries)
+  entries.clear()
+  mergeBase = new Map()
+  const imported: Entry[] = []
+  for (const e of merged) {
+    const was = before.get(e.sig)
+    if (was === undefined || !own.has(e.sig)) {
+      imported.push(e)
+      continue
+    }
+    entries.set(e.sig, e)
+    mergeBase.set(e.sig, countsOf(e))
+    // What other sessions added to this entry is not this session's waste.
+    startWaste.set(e.sig, (startWaste.get(e.sig) ?? 0) + Math.max(0, wastedTokens(e) - was))
+  }
+  takeUp(imported)
+  for (const k of [...startWaste.keys()]) if (!entries.has(k)) startWaste.delete(k)
+  await $.store.set(entriesKey(), { branch, entries: merged })
+  await $.store.set(await sessionKey($), {
+    used: [...usedNow].slice(0, 300),
+    touched: [...touchedSigs].filter(t => entries.has(t)).slice(-300),
+    start: [...startWaste].filter(([k]) => touchedSigs.has(k)).slice(-300),
+    carried,
+    at: await $.clock.now(),
+  })
+}
+
+/** The branch changed under the session (a checkout): put this branch's record away and take up the
+ * other's. What this session wasted on the old branch stays in its trend. */
+async function followBranch($: EngineInterface) {
+  const now = await readBranch($)
+  if (now === branch) return
+  await saveSession($)
+  carried = sessionOwnWaste()
+  entries.clear()
+  patterns.clear()
+  startWaste.clear()
+  touchedSigs.clear()
+  mergeBase = new Map()
+  branch = now
+  await loadEntries($)
+  log($, 'branch', { restored: entries.size })
+  await touch($)
 }
 
 const localPath = async ($: EngineInterface) => `${await $.session.root()}/${LOCAL_FILE}`
@@ -262,7 +394,8 @@ async function buildView($: EngineInterface): Promise<View> {
     sessions: history.sessions,
     failures,
     corrections,
-    trend: [...history.trend, { w: sessionWaste(entries), r: rules.length > 0 }].slice(-10),
+    trend: [...history.trend, { w: sessionOwnWaste(), r: rules.length > 0 }].slice(-10),
+    branch,
     ui,
     openId: ui.open === null ? (props[0]?.id ?? null) : ui.open === '' ? null : ui.open,
     canUndo: undo !== null,
@@ -488,6 +621,8 @@ async function onCall($: EngineInterface, e: Record<string, unknown> & { tool: s
   const call = { tool, input, text, isError, at: await $.clock.now(), turn, agent }
   const entry = track(entries, call)
   const linked = trackPatterns(patternsFor(agent ?? ''), entries, call)
+  touchedSigs.add(entry.sig)
+  for (const x of linked) touchedSigs.add(x.sig)
 
   const key = keyOf(tool, input)
   if (tool.toLowerCase() === 'bash') {
@@ -561,7 +696,8 @@ export const register: Register = (on, options) => {
   on('session.end', async ($, e, next) => {
     await ensureLoaded($)
     try {
-      const waste = sessionWaste(entries)
+      // The record is shared across sessions: this session's waste is what its own calls added.
+      const waste = sessionOwnWaste()
       const used = { ...history.used }
       for (const k of usedNow) used[k] = (used[k] ?? 0) + 1
       history = {
@@ -590,6 +726,8 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
+    await ensureLoaded($)
+    await followBranch($)
     // An undo lasts until the next turn.
     if (undo !== null) {
       undo = null
@@ -600,7 +738,8 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     if (e.isAborted && inflight.size > 0) {
-      for (const c of inflight.values()) interrupted(entries, { tool: c.tool, input: c.input, at: 0, turn: c.turn, agent: c.agent })
+      const at = await $.clock.now()
+      for (const c of inflight.values()) touchedSigs.add(interrupted(entries, { tool: c.tool, input: c.input, at, turn: c.turn, agent: c.agent }).sig)
       inflight.clear()
       await saveSession($)
       await touch($)
@@ -624,6 +763,9 @@ export const register: Register = (on, options) => {
     if (ran.deny !== undefined) return ran
     try {
       const notes = await onCall($, e as unknown as Record<string, unknown> & { tool: string }, ran, turn)
+      // Claude switched branch itself: what follows belongs to the new branch's record.
+      const cmd = (e as { command?: unknown }).command
+      if (e.tool === 'Bash' && typeof cmd === 'string' && /\bgit\b[^|;&]*\b(?:checkout|switch)\b/.test(cmd)) await followBranch($)
       if (notes.length === 0) return ran
       return { ...ran, context: [...(ran.context ?? []), ...notes] }
     } catch (err) {
@@ -665,7 +807,7 @@ export const register: Register = (on, options) => {
     await setUi($, { tab: v.loops.some(l => l.live) ? 2 : 0, open: v.props[0]?.id ?? null, view: 'list', msg: '' })
     const n = v.props.length
     return {
-      text: `Lessons: ${n} proposal${n === 1 ? '' : 's'}, ${rules.length} active, ${v.loops.length} loop${v.loops.length === 1 ? '' : 's'} this session.${open.isPlaced ? '' : ' Widen the window to see the pane.'}`,
+      text: `Lessons: ${n} proposal${n === 1 ? '' : 's'}, ${rules.length} active, ${v.loops.length} loop${v.loops.length === 1 ? '' : 's'} ${where(branch)}.${open.isPlaced ? '' : ' Widen the window to see the pane.'}`,
     }
   })
 

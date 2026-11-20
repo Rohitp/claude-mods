@@ -6,6 +6,8 @@ import type { ActiveRow, Cand, LoopRow, Proposal } from './model'
 import type { Ui } from '../types'
 
 export type View = {
+  /** The git branch the loops and proposals belong to; '' outside a repository. */
+  branch: string
   mode: 'api' | 'sub'
   /** $/M tokens for dollar figures; null when the model has no known price. */
   price: number | null
@@ -48,6 +50,9 @@ const ap = (tokens: number, price: number | null): string => {
   return u === '' || u[0] === '<' ? u : `~${u}`
 }
 const isApi = (v: View) => v.mode === 'api' && v.price !== null
+/** Where the loops and proposals were seen: `on main`, or `in this project` outside git. */
+export const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1)
+export const scope = (v: View) => (v.branch ? `on ${v.branch}` : 'in this project')
 const modeLabel = (v: View) => (v.mode === 'api' ? 'API · est.' : 'subscription · tokens')
 
 /** A button: primary draws the engine's accent button, the rest are plain. */
@@ -134,7 +139,7 @@ function deliver(v: View, p: Proposal, iw: number): Seg[][] {
 
 function proposals(v: View, iw: number): Seg[][] {
   if (v.props.length === 0) return empty(v, iw)
-  const b: Seg[][] = [...wrap('Claude repeated these this session. Nothing changes until you choose.', iw, 'dim'), []]
+  const b: Seg[][] = [...wrap(`Claude repeated these ${scope(v)}. Nothing changes until you choose.`, iw, 'dim'), []]
   v.props.forEach((p, i) => {
     const open = p.id === v.openId
     const neg = p.netJit < 0
@@ -175,7 +180,7 @@ function proposals(v: View, iw: number): Seg[][] {
 function empty(v: View, iw: number): Seg[][] {
   if (v.turns < 5 && v.failures + v.corrections === 0)
     return [
-      [S('Watching this session.', 'fg b')],
+      [S(`Watching ${scope(v)}.`, 'fg b')],
       [],
       [S('Proposals appear here when:', 'fg')],
       [S('  ✕ ', 'fg'), S('a tool call fails', 'fg')],
@@ -185,7 +190,7 @@ function empty(v: View, iw: number): Seg[][] {
       ...wrap('Nothing is written until you accept it. Lessons runs on this machine; nothing is sent anywhere.', iw, 'dim'),
     ]
   const fired = v.active.reduce((n, a) => n + (a.st === 'ok' ? 1 : 0), 0)
-  const o: Seg[][] = [[S('Nothing to learn this session.', 'fg b')], [], [S(`${v.turns} turns · ${v.failures} failures · ${v.loops.length} loops · ${v.corrections} corrections`, 'fg')], []]
+  const o: Seg[][] = [[S(`Nothing to learn ${scope(v)} yet.`, 'fg b')], [], [S(`${v.turns} turns · ${v.failures} failures · ${v.loops.length} loops · ${v.corrections} corrections`, 'fg')], []]
   if (v.active.length) o.push([S('● ', 'ok'), S(`${v.active.length} active rule${v.active.length === 1 ? '' : 's'}${fired ? `, ${fired} fired` : ''}, ${v.active.some(a => a.st === 'warn') ? 'some recurred' : 'none recurred'}.`, 'fg')], [])
   o.push(...wrap('The band stays hidden until something is worth a rule.', iw, 'dim'))
   return o
@@ -217,10 +222,10 @@ function spark(vals: number[], n: number): string[] {
 function loopsTab(v: View, iw: number): Seg[][] {
   const tot = v.loops.reduce((a, l) => a + l.wasted, 0)
   if (v.loops.length === 0) {
-    const o: Seg[][] = [[S('Nothing wasted this session.', 'fg b')], []]
+    const o: Seg[][] = [[S(`No loops ${scope(v)}.`, 'fg b')], []]
     return [...o, ...trendBlock(v, iw)]
   }
-  const b: Seg[][] = [lr([S('This session', 'fg b')], [S(`${fkd(tot)} wasted`, 'fg'), S(' est.', 'dim'), ...(isApi(v) ? [S(` ${ap(tot, v.price)}`, 'dim')] : [])], iw), []]
+  const b: Seg[][] = [lr([S(cap(scope(v)), 'fg b')], [S(`${fkd(tot)} wasted`, 'fg'), S(' est.', 'dim'), ...(isApi(v) ? [S(` ${ap(tot, v.price)}`, 'dim')] : [])], iw), []]
   v.loops.forEach(L => {
     const open = L.live || v.ui.open === L.sig
     const head: Seg[] = [Sm(open ? '−' : '+', `lp:${L.sig}`), S(' ↻ ', 'fg')]

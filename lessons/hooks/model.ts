@@ -1072,3 +1072,81 @@ export function patternsCompacted(st: PatternState, map: Map<string, Entry>, age
   const P = agentKey(agent)
   for (const e of map.values()) if (e.loop === 'reread' && e.sig.startsWith(P) && (P !== '' || !e.sig.includes('›'))) e.streak = 0
 }
+
+// ---- one record per project and branch -----------------------------------------------------------
+/** Entries older than this are dropped when the branch's record is loaded. */
+export const KEEP_MS = 30 * 24 * 3_600_000
+const MAX_KEPT = 300
+
+/** Entries carried in from earlier sessions: what they add up to stays (counts, waste, evidence, the
+ * loop they became); what only meant something in their own session is reset, so nothing reads as a
+ * live loop or a run "in a row" across sessions, and a loop that comes back is nudged again. */
+export function carryOver(list: Entry[]): Entry[] {
+  return list.map(e => ({
+    ...e,
+    sameErr: 0,
+    lastErr: '',
+    streak: 0,
+    hinted: 0,
+    quiet: false,
+    // Spellings count toward a re-fetch loop; a new session starts that count again.
+    variants: e.loop ? e.variants : [],
+    turns: [],
+  }))
+}
+
+/** What an entry has added up to: the parts two sessions' copies are merged by. */
+export type Counts = { count: number; errors: number; corrections: number; bytes: number; inBytes: number }
+export const countsOf = (e: Entry): Counts => ({ count: e.count, errors: e.errors, corrections: e.corrections, bytes: e.bytes, inBytes: e.inBytes })
+
+/** Another session on this branch may have saved since this one last did. Per signature: the stored
+ * copy plus what this session added since `base` (its counts at its last load or save), so neither
+ * session's calls are lost; this session's own fields (live counters, notes) win, evidence is pooled.
+ * Entries not seen for KEEP_MS (or never stamped) are dropped, then all but the newest MAX_KEPT. */
+export function mergeEntries(mine: readonly Entry[], stored: readonly Entry[], base: ReadonlyMap<string, Counts>, now: number): Entry[] {
+  const by = new Map<string, Entry>(stored.map(e => [e.sig, e]))
+  for (const m of mine) {
+    const o = by.get(m.sig)
+    if (!o) {
+      by.set(m.sig, m)
+      continue
+    }
+    const b = base.get(m.sig) ?? { count: 0, errors: 0, corrections: 0, bytes: 0, inBytes: 0 }
+    const add = (k: keyof Counts) => o[k] + Math.max(0, m[k] - b[k])
+    const ev = [...o.ev, ...m.ev.filter(l => !o.ev.includes(l))].slice(-MAX_EV)
+    by.set(m.sig, {
+      ...m,
+      count: add('count'),
+      errors: add('errors'),
+      corrections: add('corrections'),
+      bytes: add('bytes'),
+      inBytes: add('inBytes'),
+      peak: Math.max(o.peak, m.peak),
+      firstAt: Math.min(o.firstAt || m.firstAt, m.firstAt || o.firstAt),
+      lastAt: Math.max(o.lastAt, m.lastAt),
+      ev,
+    })
+  }
+  return [...by.values()]
+    .filter(e => e.lastAt > 0 && now - e.lastAt <= KEEP_MS)
+    .sort((a, b) => b.lastAt - a.lastAt)
+    .slice(0, MAX_KEPT)
+}
+
+/** What this session wasted: for each entry it touched, the waste beyond what the entry held when this
+ * session took it up (`start`), counted only for patterns that would be proposed. */
+export function wasteSince(map: ReadonlyMap<string, Entry>, start: ReadonlyMap<string, number>, touched: ReadonlySet<string>): number {
+  let n = 0
+  for (const sig of touched) {
+    const e = map.get(sig)
+    if (!e || !(wasLoop(e) || e.corrections > 0 || e.errors >= 2)) continue
+    n += Math.max(0, wastedTokens(e) - (start.get(sig) ?? 0))
+  }
+  return n
+}
+
+/** The branch from a `.git/HEAD` file's text: the name for `ref: refs/heads/<name>`, else `detached`. */
+export function branchFromHead(head: string): string {
+  const m = /^ref:\s*refs\/heads\/(.+)$/m.exec(head.trim())
+  return m?.[1]?.trim() || (head.trim() ? 'detached' : '')
+}

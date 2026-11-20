@@ -5,7 +5,7 @@ import { cut, fkd, sg } from './layout'
 import type { ActiveRow, Cand, LoopRow, Proposal } from './model'
 import { trendSvg } from './svg'
 import type { Acts, View } from './terminal'
-import { TABS } from './terminal'
+import { TABS, cap, scope } from './terminal'
 
 export type DesktopEl = Pick<Elements['desktop'], 'Box' | 'Text' | 'Button' | 'Svg'>
 type El = DesktopEl
@@ -111,7 +111,7 @@ function proposals(el: El, v: View, acts: Acts) {
   const money = (t: number) => (isApi(v) ? ` · ${usd(t, v.price)}` : '')
   return (
     <Box flexDirection="column" gap={1}>
-      <Text dimColor>Claude repeated these this session. Each can become a one-line rule. Nothing changes until you choose.</Text>
+      <Text dimColor>Claude repeated these {scope(v)}. Each can become a one-line rule. Nothing changes until you choose.</Text>
       {v.props.map(p => {
         const open = p.id === v.openId
         const neg = p.netJit < 0
@@ -139,7 +139,7 @@ function proposals(el: El, v: View, acts: Acts) {
                   <Text>{p.text}</Text>
                 </Box>
                 <Box gap={3}>
-                  {num('Wasted this session', `${fkd(p.saved)} tokens`, undefined, el)}
+                  {num('Wasted so far', `${fkd(p.saved)} tokens`, undefined, el)}
                   {num('The rule costs', `${fkd(p.carryJit)} tokens`, undefined, el)}
                   {num('Worth it', `${neg ? 'No' : 'Yes'}, ${sg(p.netJit)}${money(p.netJit)}`, netColor(p.netJit), el)}
                 </Box>
@@ -185,14 +185,14 @@ function empty(el: El, v: View) {
   if (v.turns < 5 && v.failures + v.corrections === 0)
     return (
       <Box flexDirection="column" gap={1}>
-        <Text bold>Watching this session.</Text>
+        <Text bold>Watching {scope(v)}.</Text>
         <Text>Proposals appear here when a tool call fails, the same call repeats 3+ times, or you interrupt or reject something.</Text>
         <Text dimColor>Nothing is written until you accept it. Lessons runs on this machine; nothing is sent anywhere.</Text>
       </Box>
     )
   return (
     <Box flexDirection="column" gap={1}>
-      <Text bold>Nothing to learn this session.</Text>
+      <Text bold>Nothing to learn {scope(v)} yet.</Text>
       <Text>{v.turns} turns · {v.failures} failures · {v.loops.length} loops · {v.corrections} corrections</Text>
       <Text dimColor>The band stays hidden until something is worth a rule.</Text>
     </Box>
@@ -234,10 +234,10 @@ function loopsTab(el: El, v: View, acts: Acts) {
   return (
     <Box flexDirection="column" gap={1}>
       {v.loops.length === 0 ? (
-        <Text bold>Nothing wasted this session.</Text>
+        <Text bold>No loops {scope(v)}.</Text>
       ) : (
         <Box justifyContent="space-between">
-          <Text bold>This session</Text>
+          <Text bold>{cap(scope(v))}</Text>
           <Text>{fkd(tot)} wasted <Text dimColor>est.{isApi(v) ? ` ${usd(tot, v.price)}` : ''}</Text></Text>
         </Box>
       )}

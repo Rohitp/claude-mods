@@ -101,15 +101,17 @@ Lessons watches tool calls for loops while they happen, gives the model one shor
 
 A tool call gets at most one loop note, so overlapping loops don't stack, and a loop that goes quiet for 10 tool calls ends. Set the `liveHints` option to `false` to keep the pop-ups and the record but send the model no loop notes.
 
+**Per project and branch.** What Lessons sees adds up across sessions: a loop that happened on `main` yesterday is still a proposal today, in a new session or another worktree of the same repository. Each branch keeps its own record, so a loop on a feature branch never shows on `main`, and switching branches mid-session switches the record. Only the loop that is happening now gets a note; ones from earlier sessions are listed, not live. Two sessions on one branch add up rather than overwrite each other. Records older than 30 days are dropped. Accepted rules, the Memory tab and the waste trend belong to each checkout instead, since every worktree has its own `CLAUDE.local.md`.
+
 **The panel** (`/lessons`) has four tabs:
 
-- **Proposals:** each repeated mistake as a one-line rule, with the evidence, the tokens it wasted (measured this session), what the rule would cost to carry (estimated), and the difference. A rule that would cost more than it saves is dimmed and says so. Accept it one of two ways:
+- **Proposals:** each repeated mistake as a one-line rule, with the evidence, the tokens it wasted (measured), what the rule would cost to carry (estimated), and the difference. A rule that would cost more than it saves is dimmed and says so. Accept it one of two ways:
   - *Just in time:* the rule is shown to the model only when a matching tool call runs, at most twice a session. Cheapest.
   - *Always on:* the rule is written to `CLAUDE.local.md`, a personal memory file Claude Code reads every turn, between marker comments so Lessons can update it. Costs tokens every turn.
 
   **Undo** works until your next message. **Not useful, dismiss** hides a proposal for good, in later sessions too.
 - **Active:** accepted rules, how often each was shown, and whether the mistake came back anyway.
-- **Loops:** this session's loops, with the exact note the model received.
+- **Loops:** the loops on this branch, with the exact note the model received, and waste per session.
 - **Memory:** lines in the project's `CLAUDE.md` files that look stale (they name a path that no longer exists), never used, or in use, with what each costs per turn. **Remove** keeps a copy so you can undo it.
 
 `/lessons accept <id>` (add `always` for always-on) and `/lessons retire <id>` work without opening the panel. Both run only when you type them, never when the model or another plugin sends them. **Reword with Claude** asks a model to tighten a rule's wording; it is the only Lessons feature that sends anything to a model, and it asks first.
@@ -120,7 +122,7 @@ Here is the Proposals tab after Claude re-read one file five times, drawn by the
 Lessons                                            subscription · tokens
 [ Proposals 2 ] [ Active 0 ] [ Loops 2 ] [ Memory 0 ]
 ────────────────────────────────────────────────────────────────────────
-Claude repeated these this session. Nothing changes until you choose.
+Claude repeated these on main. Nothing changes until you choose.
 
 [−] ↻ Read the same file 5 times                                   +4.4k
       researcher.md · …/skills/deep-research/references · turn 1
@@ -179,7 +181,7 @@ Each mod has a few options. Set them in `~/.claude/settings.json` under `pluginC
 - **Nothing leaves your machine** except the model requests you turn on: Cache Guard's keep-warm pings, and Lessons' **Reword with Claude**, which sends only the rule and its evidence after you confirm.
 - **What is stored, and where.** Each mod keeps its data in Claude Code's local plugin store on your computer:
   - Context Lens and Cache Guard: counters, and a short event log of counts and durations. They never store prompt or file content.
-  - Lessons, per project: this session's tracked calls (each command or file path, cut to 300 characters, and the first line of any error, with anything that looks like a password, token or API key masked; never file contents), accepted and dismissed rules, and the first word of each command and the folders of files it saw. It uses those to tell whether a `CLAUDE.md` line is still used.
+  - Lessons, per project and branch: the tracked calls of the last 30 days (each command or file path, cut to 300 characters, and the first line of any error, with anything that looks like a password, token or API key masked; never file contents), accepted and dismissed rules, and the first word of each command and the folders of files it saw. It uses those to tell whether a `CLAUDE.md` line is still used.
 - **What Lessons writes to your files.** Lessons edits `CLAUDE.local.md` only when you accept an *always-on* rule, and edits a `CLAUDE.md` line only when you press **Remove**. Both can be undone. Remove only touches instruction files inside the project, never the files they `@`-import, and does nothing if the file changed after you looked at it.
 - **What the model is told.** A Lessons note names the commands or the file involved; it never repeats a tool's output to the model.
 - **Debug output.** Debug lines (counts, ids and durations) go to `claude --debug` only.
