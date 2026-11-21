@@ -39,6 +39,7 @@ import {
   KEEP_MS,
   countsOf,
   wasteSince,
+  legacyId,
   callOf,
   memFilesFrom,
   linesStill,
@@ -790,4 +791,28 @@ test('the panes name the branch', () => {
   expect(text.includes('on feature/login')).toBe(true)
   const none = lessonsPane({ ...view(), branch: '' }, 72).map(l => l.map(s => s.t).join('')).join('\n')
   expect(none.includes('in this project')).toBe(true)
+})
+
+test('the same failure once today and once tomorrow becomes a proposal', () => {
+  const fail = () => bash('npm run build', "Error: Cannot find module './config'", true)
+  const today = run([fail(), bash('npm run build', 'ok')])
+  expect(propose(today, new Set(), 60).length).toBe(0)
+  // A new session takes the record up; the failure comes back once.
+  const tomorrow = new Map(carryOver([...today.values()]).map(e => [e.sig, e]))
+  track(tomorrow, fail())
+  const p = propose(tomorrow, new Set(), 60)
+  expect(p.length).toBe(1)
+  expect(p[0]!.kind).toBe('failure')
+  expect(p[0]!.title).toBe('Failed the same way 2 times')
+  // A different error the next time is not the same failure.
+  const other = new Map(carryOver([...today.values()]).map(e => [e.sig, e]))
+  track(other, bash('npm run build', 'Error: out of memory', true))
+  expect(propose(other, new Set(), 60).length).toBe(0)
+})
+
+test('a proposal dismissed under the old 4-character id stays dismissed', () => {
+  const m = run(loopCalls())
+  const p = propose(m, new Set(), 60)[0]!
+  expect(legacyId(p.sig).length).toBe(4)
+  expect(propose(m, new Set(), 60, new Set([legacyId(p.sig)])).some(x => x.sig === p.sig)).toBe(false)
 })

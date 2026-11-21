@@ -21,6 +21,10 @@ export type Entry = {
   errors: number
   /** Consecutive failures with the same (digit-collapsed) error text. */
   sameErr: number
+  /** The last failure's error key and how many times it has come back, across sessions: a success
+   * between doesn't reset it, so the same failure once today and once tomorrow is a pattern. */
+  errKeyLast: string
+  errTimes: number
   lastErr: string
   /** First line of the last failure as it was written, for display. */
   errLine: string
@@ -140,6 +144,8 @@ function blank(c: Call, d: ReturnType<typeof describe>): Entry {
     errors: 0,
     sameErr: 0,
     lastErr: '',
+    errKeyLast: '',
+    errTimes: 0,
     errLine: '',
     category: null,
     variants: [],
@@ -192,6 +198,11 @@ export function track(map: Map<string, Entry>, c: Call): Entry {
       const k = errKey(c.text)
       e.sameErr = k === e.lastErr ? e.sameErr + 1 : 1
       e.lastErr = k
+      if (k === e.errKeyLast) e.errTimes++
+      else {
+        e.errKeyLast = k
+        e.errTimes = 1
+      }
       e.errLine = errorLine(c.text)
       evidence(e, c, `${tag(c.turn)}  ${c.tool}  ${d.sample}  → ${errorLine(c.text)}`)
     }
@@ -434,10 +445,19 @@ export type Proposal = {
   scope: string
 }
 
-export function idOf(sig: string): string {
+const fnv = (s: string) => {
   let h = 2166136261
-  for (let i = 0; i < sig.length; i++) h = Math.imul(h ^ sig.charCodeAt(i), 16777619)
-  return (h >>> 0).toString(36).padStart(6, '0').slice(-6)
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619)
+  return h >>> 0
+}
+
+export function idOf(sig: string): string {
+  return fnv(sig).toString(36).padStart(6, '0').slice(-6)
+}
+
+/** The 4-character id an earlier version used: store keys and saved ids from then are found by it. */
+export function legacyId(sig: string): string {
+  return fnv(sig).toString(36).slice(0, 4).padStart(4, '0')
 }
 
 export const DEFAULT_TURNS = 60
@@ -446,10 +466,10 @@ export const DEFAULT_TURNS = 60
 export function propose(map: Map<string, Entry>, taken: Set<string>, turns: number, skip: Set<string> = new Set()): Proposal[] {
   const out: Proposal[] = []
   for (const e of map.values()) {
-    if (taken.has(e.sig) || skip.has(idOf(e.sig))) continue
+    if (taken.has(e.sig) || skip.has(idOf(e.sig)) || skip.has(legacyId(e.sig))) continue
     const loop = wasLoop(e)
     // One interrupt is not a pattern, and two different failures are not 'the same way'.
-    const kind: Kind | null = loop ? 'loop' : e.corrections >= 2 || e.category === 'user_rejected' ? 'correction' : e.sameErr >= 2 ? 'failure' : null
+    const kind: Kind | null = loop ? 'loop' : e.corrections >= 2 || e.category === 'user_rejected' ? 'correction' : Math.max(e.sameErr, e.errTimes) >= 2 ? 'failure' : null
     if (!kind) continue
     const text = ruleText(e)
     const m = matcherFor(e)
@@ -458,7 +478,7 @@ export function propose(map: Map<string, Entry>, taken: Set<string>, turns: numb
     fires = Math.max(1, fires)
     const tokens = tokensOf(text)
     const saved = wastedTokens(e)
-    const n = loop ? Math.max(e.peak, loopSize(e)) : e.corrections > 0 ? e.corrections : e.errors
+    const n = loop ? Math.max(e.peak, loopSize(e)) : kind === 'correction' ? e.corrections : Math.max(e.sameErr, e.errTimes)
     out.push({
       id: idOf(e.sig),
       sig: e.sig,
@@ -828,6 +848,8 @@ export function sanitizeEntries(v: unknown): Entry[] {
       errors: num(o.errors),
       sameErr: num(o.sameErr),
       lastErr: typeof o.lastErr === 'string' ? o.lastErr : '',
+      errKeyLast: typeof o.errKeyLast === 'string' ? o.errKeyLast : '',
+      errTimes: num(o.errTimes),
       errLine: typeof o.errLine === 'string' && !BARE_EXIT.test(o.errLine.trim()) ? o.errLine : '',
       category: typeof o.category === 'string' ? (o.category as Category) : null,
       variants: strs(o.variants).slice(0, MAX_VARIANTS),

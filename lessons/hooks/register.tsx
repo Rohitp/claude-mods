@@ -32,6 +32,7 @@ import {
   mergeEntries,
   wasteSince,
   KEEP_MS,
+  legacyId,
   memFilesFrom,
   missKey,
   priceOf,
@@ -193,19 +194,39 @@ async function loadEntries($: EngineInterface) {
   takeUp(sanitizeEntries(((await $.store.get(entriesKey())) as { entries?: unknown } | null)?.entries))
 }
 
+/** An earlier version named a checkout's keys by a 4-character id and kept one session slot per
+ * checkout. Rules and history move to the current names (unless already there); every such session
+ * slot, this checkout's or another's, is dropped: what it held was per session and is now per branch. */
+async function migrateLegacy($: EngineInterface, root: string) {
+  try {
+    const old = legacyId(root)
+    for (const kind of ['rules', 'history']) {
+      const from = `${kind}:${old}`
+      const to = `${kind}:${localKey}`
+      const v = await $.store.get(from)
+      if (v === null || v === undefined) continue
+      if ((await $.store.get(to)) === null || (await $.store.get(to)) === undefined) await $.store.set(to, v)
+      await $.store.delete(from)
+      log($, 'migrated', { kind })
+    }
+    for (const k of await $.store.keys()) if (/^session:[0-9a-z]{4}$/.test(k)) await $.store.delete(k)
+  } catch (err) {
+    log($, 'error', { where: 'migrate', msg: String(err).slice(0, 80) })
+  }
+}
+
 async function load($: EngineInterface) {
   const root = await $.session.root()
   localKey = idOf(root)
   repoKey = idOf((await $.session.repo())?.root ?? root)
   branch = await readBranch($)
+  await migrateLegacy($, root)
   rules = sanitizeRules(await $.store.get(`rules:${localKey}`))
   for (const r of rules) fromStore.add(r.id)
   history = sanitizeHistory(await $.store.get(`history:${localKey}`))
   for (const k of history.kept) kept.add(k)
   for (const k of history.dismissed) dismissed.add(k)
-  // The one slot every session of this checkout used to share; each session has its own now, and
-  // those of sessions not seen for KEEP_MS are dropped.
-  await $.store.delete(`session:${localKey}`).catch(() => {})
+  // Each session has its own slot; those of sessions not seen for KEEP_MS are dropped.
   try {
     const now = await $.clock.now()
     for (const k of await $.store.keys()) {
@@ -335,7 +356,7 @@ async function loadMemory($: EngineInterface, force = false) {
   }
   const { cands, inUse } = memoryCandidates(files, history.used, history.sessions, missing)
   const tokens = files.reduce((n, f) => n + Math.ceil(f.content.length / 4), 0)
-  mem = { at: now, files, cands: cands.filter(c => !kept.has(c.id)), inUse, tokens }
+  mem = { at: now, files, cands: cands.filter(c => !kept.has(c.id) && !kept.has(legacyId(`${c.file}:${c.from}`))), inUse, tokens }
   return mem
 }
 
