@@ -162,6 +162,10 @@ test('desktop band appears only when it matters', () => {
   // Only the explanation can shrink, so 'Cache is cold' and the buttons never wrap.
   const band = cacheBandDesktop(el, derive({ ...base, now: 401_000 }), acts) as unknown as { children?: Array<{ props?: Record<string, unknown> }> }
   expect((band.children ?? []).filter(k => k.props?.flexShrink !== 0).length).toBe(1)
+  // The explanation wraps rather than being cut, and the button hides the band for the session.
+  expect(JSON.stringify(band).includes('"wrap":"wrap"')).toBe(true)
+  expect(JSON.stringify(band).includes('truncate')).toBe(false)
+  expect(flat(band as never).includes('Hide for this session')).toBe(true)
 })
 
 test('svg builders emit one well-formed document each', () => {

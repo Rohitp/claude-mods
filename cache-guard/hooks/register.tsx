@@ -32,6 +32,8 @@ const limitAtom = atom({ plugin: 'cache-guard', key: 'limitPct' } as const, null
 const compactedAtom = atom({ plugin: 'cache-guard', key: 'compactedAt' } as const, 0)
 const availableAtom = atom({ plugin: 'cache-guard', key: 'isAvailable' } as const, true)
 const dismissedAtom = atom({ plugin: 'cache-guard', key: 'dismissedAt' } as const, 0)
+/** Hidden for the session: a dismissal that lasted one cache window came back at every idle gap. */
+const bandOffAtom = atom({ plugin: 'cache-guard', key: 'bandOff' } as const, false)
 const lastTurnAtom = atom({ plugin: 'cache-guard', key: 'lastTurnAt' } as const, 0)
 const zeroAtom = atom({ plugin: 'cache-guard', key: 'zeroSteps' } as const, 0)
 
@@ -212,7 +214,7 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'cache',
-      description: 'Cache Guard pane; `warm` toggles keep-warm, `5m`/`1h` sets the TTL, `stats` shows metrics',
+      description: 'Cache Guard pane; `warm` toggles keep-warm, `5m`/`1h` sets the TTL, `band` shows or hides the band, `stats` shows metrics',
     })
     const now = await $.clock.now()
     stats = isTracking ? sanitizeStats(await $.store.get(STORE_KEY), now) : emptyStats(now)
@@ -360,6 +362,12 @@ export const register: Register = (on, options) => {
       log($, 'info', 'ttl.set', { ttl: arg })
       return { text: `Cache TTL assumed ${arg}.` }
     }
+    if (arg === 'band') {
+      const isOff = !(await read($, bandOffAtom))
+      await update($, bandOffAtom, () => isOff)
+      log($, 'info', 'band.toggle', { off: isOff })
+      return { text: isOff ? 'Cache band hidden for this session.' : 'Cache band shown again: it appears in the last minute before the cache expires, and while it is cold.' }
+    }
     if (arg === 'stats') {
       const now = await $.clock.now()
       const ttl = await read($, ttlAtom)
@@ -414,7 +422,7 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     try {
       const g = await load($)
-      if (!g.touch || !g.now || e.props.hasSurvey) return next(e)
+      if (!g.touch || !g.now || e.props.hasSurvey || (await read($, bandOffAtom))) return next(e)
       const v = derive(g)
       const segs = cacheBand(v, Math.max(20, e.props.bodyColumns))
       // A band that would appear mid-keystroke waits for a two-second typing pause.
@@ -437,9 +445,10 @@ export const register: Register = (on, options) => {
           log($, 'info', 'compact.click', { via: 'band', state: v.state })
           void $.session.compact()
         },
-        dismiss: () => {
+        dismiss: async () => {
           count('band.dismiss')
-          return update($, dismissedAtom, () => touchAt)
+          await update($, bandOffAtom, () => true)
+          $.ui.toast('Cache band hidden for this session. /cache band shows it again; /cache still has the countdown.')
         },
       }
       const below = await next(e)

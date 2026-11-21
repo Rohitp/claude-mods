@@ -305,22 +305,31 @@ export function ctxBandDesktop(el: DesktopEl, v: View, acts: Acts) {
   const top = l.cats.filter(c => c.kind === 'used' && c.tokens > 0).sort((a, b) => b.tokens - a.tokens).slice(0, 3)
   return (
     <Box flexDirection="column">
-    <Box key="band" gap={2} alignItems="center">
-      <Button key="open" label="Context Lens" onPress={acts.open!} />
-      <Svg key="mini" source={miniStackSvg(l.cats)} alt={`${v.percent}% of the window used`} width={96} height={6} />
-      <Text bold color={role(v)}>{v.percent}%</Text>
-      <Text dimColor wrap="truncate">
-        {v.state === 'crit'
-          ? 'autocompacts next turn'
-          : v.state === 'warn'
-            ? v.turnsLeft !== null ? `~${Math.max(1, Math.round(v.turnsLeft))} turns to autocompact` : 'past 80%'
-            : top.map(c => `${c.name} ${fk(c.tokens)}`).join(' · ')}
-      </Text>
-      <Text dimColor>
-        {v.mode === 'api' && v.carry !== null ? `carry ~${usd(v.carry)}/turn est.` : v.mode === 'sub' && l.limitPct !== null ? `5h window ${l.limitPct}%` : ''}
-      </Text>
-      {v.state !== 'normal' && <Button key="compact" label="Compact now" onPress={acts.compact!} />}
-      <Button key="hide" plain dimColor label="Hide" onPress={acts.hide!} />
+    {/* The detail wraps onto more lines when the row is narrow; the rest keeps its size. */}
+    <Box key="band" gap={2} alignItems="center" flexWrap="nowrap">
+      <Box flexShrink={0}>
+        <Button key="open" label="Context Lens" onPress={acts.open!} />
+      </Box>
+      <Box flexShrink={0}>
+        <Svg key="mini" source={miniStackSvg(l.cats)} alt={`${v.percent}% of the window used`} width={96} height={6} />
+      </Box>
+      <Box flexShrink={0}>
+        <Text bold color={role(v)}>{v.percent}%</Text>
+      </Box>
+      <Box flexGrow={1} flexShrink={1} minWidth={0}>
+        <Text dimColor wrap="wrap">
+          {v.state === 'crit'
+            ? 'autocompacts next turn'
+            : v.state === 'warn'
+              ? v.turnsLeft !== null ? `~${Math.max(1, Math.round(v.turnsLeft))} turns to autocompact` : 'past 80%'
+              : top.map(c => `${c.name} ${fk(c.tokens)}`).join(' · ')}
+          {v.mode === 'api' && v.carry !== null ? ` · carry ~${usd(v.carry)}/turn est.` : v.mode === 'sub' && l.limitPct !== null ? ` · 5h window ${l.limitPct}%` : ''}
+        </Text>
+      </Box>
+      <Box flexShrink={0} gap={1}>
+        {v.state !== 'normal' && <Button key="compact" label="Compact now" onPress={acts.compact!} />}
+        <Button key="hide" plain dimColor label="Hide" onPress={acts.hide!} />
+      </Box>
     </Box>
     </Box>
   )

@@ -197,7 +197,7 @@ export function cacheBandDesktop(el: El, v: View, acts: Acts) {
       : v.mode === 'api'
         ? `Then a miss costs +${usd(v.miss ?? 0)} est. A ping costs ${usd(v.ping ?? 0)}.`
         : `Then the next turn re-sends ${fk(v.tokens)} at ${v.write}x.`
-  // Only the explanation may shrink, cut with an ellipsis; the bar, the title and the buttons stay whole.
+  // Only the explanation may give way, wrapping onto more lines; the bar, the title and the buttons stay whole.
   return (
     <Box gap={2} alignItems="center" borderStyle="round" paddingX={1} flexWrap="nowrap">
       <Box flexShrink={0}>
@@ -211,8 +211,8 @@ export function cacheBandDesktop(el: El, v: View, acts: Acts) {
       <Box flexShrink={0}>
         <Text bold color={roleColor(v)}>{isCold ? 'Cache is cold' : `Cache expires in ${v.clock}`}</Text>
       </Box>
-      <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
-        <Text dimColor wrap="truncate-end">{body}</Text>
+      <Box flexGrow={1} flexShrink={1} minWidth={0}>
+        <Text dimColor wrap="wrap">{body}</Text>
       </Box>
       <Box flexShrink={0} gap={1}>
         {isCold ? (
@@ -220,7 +220,7 @@ export function cacheBandDesktop(el: El, v: View, acts: Acts) {
         ) : (
           <Button key="warm" label={v.isKeepWarm ? 'Turn off keep warm' : 'Keep warm'} onPress={acts.warm!} />
         )}
-        <Button key="dismiss" label="Dismiss" onPress={acts.dismiss!} />
+        <Button key="dismiss" label="Hide for this session" onPress={acts.dismiss!} />
       </Box>
     </Box>
   )

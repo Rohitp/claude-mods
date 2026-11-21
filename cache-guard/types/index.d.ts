@@ -29,6 +29,8 @@ declare module 'claude-code' {
       isAvailable: boolean
       /** `touch.at` of the cache window whose band the person dismissed. */
       dismissedAt: number
+      /** The person hid the band for the rest of the session; `/cache band` shows it again. */
+      bandOff: boolean
       /** Start of the last real (non-ping) main-thread request. */
       lastTurnAt: number
       zeroSteps: number

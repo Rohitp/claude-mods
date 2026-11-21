@@ -60,7 +60,7 @@ export function cacheBand(v: View, w: number): Seg[] | null {
     items.push({ p: 3, segs: [S('cheapest moment to compact', 'dim')] })
     right = [bracket('Compact now', 'compact')]
   }
-  const dismiss = S('  dismiss', 'accent', { act: 'dismiss' })
+  const dismiss = S('  hide', 'accent', { act: 'dismiss' })
   const rw = right[0]!.t.length
   const full = [...right, dismiss]
   const fw = rw + dismiss.t.length

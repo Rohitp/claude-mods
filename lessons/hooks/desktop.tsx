@@ -30,15 +30,15 @@ export function lessonsBandDesktop(el: El, v: View, acts: Acts) {
   const hidden = !live && (v.props.length === 0 || v.props.length <= v.ui.later)
   const p = v.props[0]
   if (hidden || (!live && !p)) return null
-  // Fixed parts never shrink or wrap; only the middle text gives way, cut with an ellipsis.
+  // Fixed parts never shrink or wrap; only the middle text gives way, wrapping onto more lines.
   const fixed = (key: string, kid: JSX.Element) => (
     <Box key={key} flexShrink={0}>
       {kid}
     </Box>
   )
   const middle = (text: string) => (
-    <Box key="what" flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
-      <Text wrap="truncate-end">{text}</Text>
+    <Box key="what" flexGrow={1} flexShrink={1} minWidth={0}>
+      <Text wrap="wrap">{text}</Text>
     </Box>
   )
   const head = live

@@ -69,7 +69,7 @@ Claude Code uses a *prompt cache*: the start of the prompt, which repeats every 
 
 Cache Guard counts down to that expiry.
 
-- **A warning 60 seconds before expiry:** a short pop-up and a band above the prompt box showing what a miss would cost.
+- **A warning 60 seconds before expiry:** a short pop-up and a band above the prompt box showing what a miss would cost. **Hide for this session** on the band keeps it away until the session ends; `/cache band` brings it back, and `/cache` still shows the countdown.
 - **After it expires:** the band says the next turn rewrites everything anyway, which makes it the cheapest moment to compact.
 - **The panel** (`/cache`): the countdown, the cost of a miss against a keep-alive ping, recent cache hits and misses, and a log of what invalidated the cache: going idle past the TTL, switching model, switching effort, or a compaction.
 - **Keep warm** (`/cache warm`): sends a small request shortly before expiry so the cache stays alive. It is off until you turn it on. It turns itself off once another ping would cost more than the miss it prevents (counting everything a ping costs, its output included), after 2 hours with no turn from you, or if a ping fails. Each ping is a real model request and is billed as one.
