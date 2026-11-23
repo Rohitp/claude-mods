@@ -34,7 +34,8 @@ export type Ui = {
   /** One line for a notice or an error. */
   msg: string
   /** Proposal count at the moment the person pressed Later. */
-  later: number
+  /** What Later hid: loop and proposal signatures and proposal ids. */
+  later: string[]
   /** Bumped on every change a drawing reads from module memory. */
   rev: number
 }

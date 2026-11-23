@@ -40,6 +40,7 @@ import {
   countsOf,
   wasteSince,
   legacyId,
+  laterMarks,
   callOf,
   memFilesFrom,
   linesStill,
@@ -265,7 +266,7 @@ const view = (over: Partial<View> = {}): View => {
     failures: 5,
     corrections: 0,
     trend: [{ w: 41000, r: false }, { w: 38000, r: false }, { w: 28700, r: true }],
-    ui: { tab: 0, open: null, view: 'list', id: '', polished: '', msg: '', later: 0, rev: 0 },
+    ui: { tab: 0, open: null, view: 'list', id: '', polished: '', msg: '', later: [], rev: 0 },
     openId: props[0]?.id ?? null,
     canUndo: false,
     append: { file: 'CLAUDE.local.md', line: 13, prev: 'Use pnpm, never npm.' },
@@ -289,7 +290,34 @@ test('band: one row at every width, no Review below 110, never empty when pendin
 test('band: hidden when nothing is pending or the person said Later', () => {
   expect(lessonsBand(view({ props: [], loops: [] }), 120)).toBe(null)
   const v = view()
-  expect(lessonsBand({ ...v, loops: [], ui: { ...v.ui, later: v.props.length } }, 120)).toBe(null)
+  expect(lessonsBand({ ...v, loops: [], ui: { ...v.ui, later: v.props.map(p => p.id) } }, 120)).toBe(null)
+})
+
+test('band: Later puts off a live loop too, and anything new brings the band back', () => {
+  const v = view()
+  const live = v.loops.find(l => l.live)!
+  expect(live !== undefined).toBe(true)
+  // Later during a live loop hides it (it used to do nothing while a loop was live).
+  const off = { ...v, ui: { ...v.ui, later: laterMarks(v) } }
+  expect(lessonsBand(off, 144)).toBe(null)
+  expect(lessonsBandDesktop(el, off, acts)).toBe(null)
+  // A different loop going live shows again.
+  const other = { ...off, loops: off.loops.map(l => (l.live ? { ...l, sig: 'another' } : l)) }
+  expect(lessonsBand(other, 144) !== null).toBe(true)
+  // Once the loop ends, its own proposal stays put off; a new proposal does not.
+  const ended = { ...off, loops: [], props: v.props.map(p => (p.sig === live.sig ? p : { ...p })).filter(p => p.sig === live.sig) }
+  if (ended.props.length) expect(lessonsBand(ended, 144)).toBe(null)
+  const fresh = { ...off, loops: [], props: [...ended.props, { ...v.props[0]!, id: 'newone', sig: 'newsig' }] }
+  expect(lessonsBand(fresh, 144) !== null).toBe(true)
+})
+
+test('band: Later on proposals is not fooled by the count staying the same', () => {
+  const v = view({ loops: [] })
+  const off = { ...v, ui: { ...v.ui, later: laterMarks(v) } }
+  expect(lessonsBand(off, 144)).toBe(null)
+  // One proposal goes, a different one arrives: same count, new content, so the band shows.
+  const swapped = { ...off, props: [...v.props.slice(1), { ...v.props[0]!, id: 'zz9', sig: 'other' }] }
+  expect(lessonsBand(swapped, 144) !== null).toBe(true)
 })
 
 test('band: a live loop shows in the warning role and wins over proposals', () => {

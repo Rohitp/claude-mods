@@ -2,6 +2,7 @@
 // generator. Every line returned fits its width; actions are named, never wired here.
 import { block, cut, flexRow, fit, fkd, ind, len, lr, padL, S, sg, trunc, wrap } from './layout'
 import type { Flex, Seg } from './layout'
+import { isBandHidden } from './model'
 import type { ActiveRow, Cand, LoopRow, Proposal } from './model'
 import type { Ui } from '../types'
 
@@ -65,7 +66,7 @@ const Sm = (label: string, act: string): Seg => S(`[${label}]`, 'fg', { act })
 export function lessonsBand(v: View, w: number, canReview = w >= 110): Seg[] | null {
   const live = v.loops.find(l => l.live)
   const top = v.props[0]
-  const hidden = !live && (v.props.length === 0 || v.props.length <= v.ui.later)
+  const hidden = isBandHidden(v)
   if (hidden) return null
   const docked = canReview
   const right = docked ? [Bt('Review', 'review', true), S(' '), Bt('Later', 'later')] : [Bt('Later', 'later')]

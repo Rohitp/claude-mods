@@ -33,6 +33,7 @@ import {
   wasteSince,
   KEEP_MS,
   legacyId,
+  laterMarks,
   memFilesFrom,
   missKey,
   priceOf,
@@ -567,7 +568,11 @@ function actionsFor($: EngineInterface, v: View, openPane: () => void): Acts {
       const live = v.loops.find(l => l.live)
       void setUi($, { tab: live ? 2 : 0, open: live ? live.sig : (v.props[0]?.id ?? null), view: 'list', msg: '' })
     },
-    later: () => void setUi($, { later: v.props.length }),
+    later: () =>
+      void update($, uiAtom, u => {
+        const ui = sanitizeUi(u)
+        return { ...ui, later: [...new Set([...ui.later, ...laterMarks(v)])].slice(-100), rev: ui.rev + 1 }
+      }),
     write: () => void doWrite($),
     undo: () => void doUndo($),
     back: () => void setUi($, { view: 'list', msg: '' }),

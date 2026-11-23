@@ -811,7 +811,22 @@ export function priceOf(model: string): number | null {
 
 import type { Ui } from '../types'
 
-export const DEFAULT_UI: Ui = { tab: 0, open: null, view: 'list', id: '', polished: '', msg: '', later: 0, rev: 0 }
+export const DEFAULT_UI: Ui = { tab: 0, open: null, view: 'list', id: '', polished: '', msg: '', later: [], rev: 0 }
+
+/** What the band shows can be put off: the live loop, or every proposal listed now. A loop put off
+ * stays off as a proposal too; anything new brings the band back. */
+type BandView = { loops: { sig: string; live: boolean }[]; props: { id: string; sig: string }[]; ui: Ui }
+export function isBandHidden(v: BandView): boolean {
+  const off = new Set(v.ui.later)
+  const live = v.loops.find(l => l.live)
+  if (live) return off.has(live.sig)
+  return v.props.every(p => off.has(p.id) || off.has(p.sig))
+}
+/** The marks Later adds for what the band shows now. */
+export function laterMarks(v: BandView): string[] {
+  const live = v.loops.find(l => l.live)
+  return live ? [live.sig] : v.props.map(p => p.id)
+}
 
 const VIEWS = ['list', 'jit', 'always', 'written', 'error', 'polish', 'sending', 'polished', 'remove', 'retire', 'notice']
 export function sanitizeUi(v: unknown): Ui {
@@ -825,7 +840,7 @@ export function sanitizeUi(v: unknown): Ui {
     id: typeof o.id === 'string' ? o.id : '',
     polished: typeof o.polished === 'string' ? o.polished : '',
     msg: typeof o.msg === 'string' ? o.msg : '',
-    later: typeof o.later === 'number' ? o.later : 0,
+    later: Array.isArray(o.later) ? o.later.filter((x): x is string => typeof x === 'string').slice(-100) : [],
     rev: typeof o.rev === 'number' ? o.rev : 0,
   }
 }

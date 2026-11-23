@@ -2,6 +2,7 @@
 import type { Elements } from 'claude-code'
 
 import { cut, fkd, sg } from './layout'
+import { isBandHidden } from './model'
 import type { ActiveRow, Cand, LoopRow, Proposal } from './model'
 import { trendSvg } from './svg'
 import type { Acts, View } from './terminal'
@@ -27,7 +28,7 @@ const modeLabel = (v: View) => (v.mode === 'api' ? 'API billing · est.' : 'Subs
 export function lessonsBandDesktop(el: El, v: View, acts: Acts) {
   const { Box, Text, Button } = el
   const live = v.loops.find(l => l.live)
-  const hidden = !live && (v.props.length === 0 || v.props.length <= v.ui.later)
+  const hidden = isBandHidden(v)
   const p = v.props[0]
   if (hidden || (!live && !p)) return null
   // Fixed parts never shrink or wrap; only the middle text gives way, wrapping onto more lines.
