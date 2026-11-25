@@ -1,6 +1,6 @@
 # claude-mods
 
-Three mods for [Claude Code](https://claude.com/claude-code). A *mod* is a plugin that changes Claude Code's own screen and behaviour: it can add a side panel, a line above the prompt box, or a short note the model reads after a tool runs.
+I wrote these three Claude Code plugins to see what Claude is carrying in its context window, when its prompt cache might expire, and where it keeps getting stuck. The table shows what each one adds and how to open it.
 
 | Mod | What it tells you | Opens with |
 |---|---|---|
